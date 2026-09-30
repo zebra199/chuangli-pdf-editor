@@ -1,0 +1,3964 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<!--
+  ================================================================================
+   创立PDF编辑器（Chuangli PDF Editor）
+   Copyright (c) 2026 马创立
+
+   本软件以 MIT 协议开源发布。允许任何人免费取得本软件副本及相关文档，并无限制地
+   使用、复制、修改、合并、出版发行、散布、再授权和/或贩售，条件是在所有副本或
+   重要部分中保留上述版权声明与本许可声明。
+
+   本软件系「按现状」提供，不作任何明示或默示的担保，包括但不限于适售性、
+   特定用途适用性与非侵权性的担保。
+   完整协议：https://opensource.org/licenses/MIT
+
+   --------------------------------------------------------------------------------
+   第三方组件（许可声明随各组件分发，此处汇总以便查阅）：
+     · pdf.js / pdf.worker.js   Apache License 2.0   © Mozilla Foundation
+          https://github.com/mozilla/pdf.js
+     · pdf-lib                  MIT License          © Hopding
+          https://github.com/Hopding/pdf-lib
+     · heic2any                 MIT License          © Alex Corvi
+          https://github.com/alexcorvi/heic2any
+
+   上述三个库均以内联方式打包在本文件中，其许可与版权声明保持不变；
+   本文件不修改、不替代各组件自身的许可条款。
+   --------------------------------------------------------------------------------
+   隐私承诺：本工具完全在本地浏览器内运行，代码中不含任何网络请求，
+   不会上传、收集或传输你导入的任何文件与内容。
+  ================================================================================
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>创立PDF编辑器 · 本地运行 · 文件不上传</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    --bg:#f2f4f8; --card:#ffffff; --line:#e3e7ee; --ink:#1f2733; --sub:#6b7686;
+    --acc:#2f6fed; --acc-d:#1f57c8; --acc-soft:#eef4ff;
+    --ok:#1f9d55; --warn:#d97706; --err:#dc2626; --err-soft:#fdf0f0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+  header{padding:13px 26px;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .sub{color:var(--sub);font-size:12.5px}
+  /* 版权/开源一行：flex-basis:100% 让它整行独占，不跟标题挤在一起 */
+  header .lic{flex-basis:100%;color:#8a94a6;font-size:11.5px;margin-top:-6px}
+  /* 主区：左＝导入+页面网格，右＝设置侧栏（sticky 跟随滚动） */
+  .wrap{max-width:1460px;margin:0 auto;padding:12px 20px 70px}
+  .cols{display:flex;gap:14px;align-items:flex-start}
+  .col-main{flex:1 1 auto;min-width:0}
+  .col-side{flex:none;width:302px;position:sticky;top:12px;
+    max-height:calc(100vh - 96px);overflow-y:auto;overscroll-behavior:contain}
+  .col-side::-webkit-scrollbar{width:8px}
+  .col-side::-webkit-scrollbar-thumb{background:#d3dae5;border-radius:99px}
+  .side-t{font-size:13px;font-weight:700;color:var(--ink);margin:2px 2px 8px;
+    display:flex;align-items:center;gap:8px}
+  .side-t::after{content:"";flex:1;height:1px;background:var(--line)}
+  @media (max-width:1080px){
+    .cols{flex-direction:column}
+    .col-side{width:100%;position:static;max-height:none;overflow:visible}
+  }
+
+  /* ===== 顶部工具栏：压缩档位 ===== */
+  .toolbar{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;
+    display:flex;flex-wrap:wrap;gap:12px 22px;align-items:center}
+  .toolbar label{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--sub);white-space:nowrap}
+  .toolbar select{border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13.5px;background:#fff;color:var(--ink)}
+  .toolbar .est{font-size:12.8px;color:var(--warn);font-weight:600;max-width:620px}
+  .toolbar .hint{font-size:12.5px;color:var(--sub);width:100%}
+
+  /* 设置卡在右侧栏里单列纵向排布 */
+  .settings{display:flex;flex-direction:column;gap:10px;margin:0}
+  .scard{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:9px 11px}
+  .scard-t{font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:7px;display:flex;align-items:center;gap:8px}
+  .scard-tag{font-size:10.5px;font-weight:500;color:var(--sub);background:#eef1f6;border-radius:20px;padding:1px 6px}
+  .scard label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;font-size:12px;color:var(--sub)}
+  .scard select{color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:4px 6px;font-size:12.5px;background:#fff}
+  .scard .est{display:block;font-size:12px;color:var(--warn);font-weight:600;margin-top:2px}
+  .scard .hint{font-size:11.5px;color:var(--sub);margin-top:4px;line-height:1.45}
+  .scard.disabled{opacity:.5;pointer-events:none}
+
+  /* 折叠式设置卡：默认只留标题行 + 启用开关，勾选后才展开参数（避免把下方内容挤走） */
+  .scard-body{display:none}
+  .scard.open .scard-body{display:block}
+  .scard:not(.open) .scard-t{margin-bottom:0}
+  .scard-t .swx{display:flex;align-items:center;gap:5px;margin-left:auto;font-size:11.5px;
+    font-weight:400;color:var(--sub);cursor:pointer;user-select:none}
+  .scard-t .swx input[type=checkbox]{width:15px;height:15px;accent-color:var(--acc);cursor:pointer}
+  .scard label.sl{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .scard input[type=text],.scard input[type=number]{flex:1 1 auto;min-width:0;max-width:150px;
+    border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-size:12.5px;color:var(--ink);background:#fff}
+  .scard input[type=range]{flex:1 1 auto;min-width:0;max-width:110px;accent-color:var(--acc)}
+  .scard input[type=color]{flex:none;width:30px;height:22px;padding:0;border:1px solid var(--line);border-radius:5px;background:#fff;cursor:pointer}
+  .scard input[type=checkbox]{flex:none;width:15px;height:15px;accent-color:var(--acc);cursor:pointer}
+  /* 常用色快捷色板（自动注入到每个 input[type=color] 下方） */
+  .swatches{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:3px 0 7px}
+  /* 工具条是横排：色板跟在【颜色】选色器右侧。尺寸比设置卡里小一号、间距更紧，
+   * 尽量让一行放得下（放不下时会换行，此时 lockPreviewWidth 实测高度让舞台让位） */
+  .pv-edit .swatches{margin:0 0 0 2px;flex:none;gap:3px;max-width:260px}
+  .pv-edit .swatches .swc{width:14px;height:14px}
+  .swatches .swc{flex:none;width:16px;height:16px;padding:0;border-radius:4px;cursor:pointer;
+    border:1px solid rgba(15,23,42,.22);transition:box-shadow .12s,transform .12s}
+  .swatches .swc:hover{transform:translateY(-1px);box-shadow:0 0 0 2px rgba(47,111,237,.35)}
+  .swatches .swc.on{box-shadow:0 0 0 2px var(--acc)}
+  .swatches .swc:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+  .scard .val{flex:none;width:44px;text-align:right;font-size:11.5px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .scard .grp{border-top:1px dashed var(--line);margin-top:5px;padding-top:5px}
+  .scard .mini{width:100%;border:1px solid var(--line);background:#fff;color:var(--sub);
+    font-size:11.5px;padding:4px 8px;border-radius:6px;cursor:pointer;margin-top:5px}
+  .scard .mini:hover{border-color:var(--acc);color:var(--acc);background:var(--acc-soft)}
+  .scard .mini.on{border-color:var(--acc);color:var(--acc);background:var(--acc-soft)}
+  .scard .picked{font-size:11px;color:var(--ok);margin-top:4px;word-break:break-all}
+
+  /* ===== 导入区 ===== */
+  #dropzone{margin-top:12px;border:2px dashed #c6cede;border-radius:11px;background:var(--card);
+    padding:15px;text-align:center;color:var(--sub);transition:.15s;cursor:pointer}
+  #dropzone.drag{border-color:var(--acc);background:var(--acc-soft)}
+  #dropzone .big{font-size:13.5px;margin-bottom:6px;color:var(--ink)}
+  #pickBtn{border:none;background:var(--acc);color:#fff;font-size:13.5px;padding:7px 18px;border-radius:8px;cursor:pointer}
+  #pickBtn:hover{background:var(--acc-d)}
+  #dropzone .tip{margin-top:6px;font-size:12px}
+
+  /* ===== 页面网格 ===== */
+  .list{margin-top:12px;position:relative;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px}
+  .file-divider{grid-column:1/-1;display:flex;align-items:center;gap:10px;margin-top:6px;font-size:12.5px;color:var(--sub)}
+  .file-divider::before,.file-divider::after{content:"";flex:1;height:1px;background:var(--line)}
+  .file-divider .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+    box-shadow:0 1px 3px rgba(20,30,50,.05);display:flex;flex-direction:column;position:relative;
+    cursor:pointer;transition:border-color .12s, box-shadow .12s}
+  .card.dragging{opacity:.45;border-color:var(--acc)}
+  /* 拖拽插入位置指示条：高亮"即将插入的缝隙"，而不是被盖住的卡片本身 */
+  .drop-ind{position:absolute;display:none;width:3px;border-radius:3px;background:var(--acc);
+    box-shadow:0 0 0 1px rgba(47,111,237,.22),0 0 12px rgba(47,111,237,.5);pointer-events:none;z-index:6;
+    transition:left .09s ease,top .09s ease,height .09s ease}
+  .drop-ind::before,.drop-ind::after{content:"";position:absolute;left:50%;transform:translateX(-50%);
+    width:9px;height:9px;border-radius:50%;background:var(--acc);box-shadow:0 0 6px rgba(47,111,237,.6)}
+  .drop-ind::before{top:-5px}
+  .drop-ind::after{bottom:-5px}
+  .thumb{position:relative;background:#e9edf3;height:210px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .thumb canvas,.thumb img{max-width:calc(100% - 12px);max-height:calc(100% - 12px);box-shadow:0 1px 4px rgba(20,30,50,.18);background:#fff;display:block;object-fit:contain}
+  .badge{position:absolute;left:8px;top:8px;background:rgba(20,30,50,.72);color:#fff;font-size:11.5px;
+    padding:1px 8px;border-radius:99px;z-index:2}
+  .badge.err{background:var(--err)}
+  .card .meta{padding:6px 8px;font-size:12px;display:flex;flex-direction:column;gap:4px}
+  .card .meta .row1{display:flex;justify-content:space-between;align-items:center;gap:6px}
+  .card .meta .row1 .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:500;flex:1;min-width:0}
+  .card .meta .row1 .info{color:var(--sub);font-size:11px;white-space:nowrap;flex-shrink:0}
+  /* 单页覆盖标记：提示该页不跟随全局设置，点击可恢复 */
+  .ovtag{flex:none;font-size:10.5px;line-height:1.5;color:var(--acc);background:var(--acc-soft);
+    border:1px solid #d3e0ff;border-radius:99px;padding:0 6px;cursor:pointer;white-space:nowrap}
+  .ovtag:hover{background:#dbe8ff}
+  .card .meta .row2{display:flex;gap:4px;justify-content:flex-end}
+  .card .meta .row2 button{border:1px solid var(--line);background:#fff;color:var(--sub);font-size:11px;padding:3px 8px;border-radius:5px;cursor:pointer;transition:.12s}
+  .card .meta .row2 button:hover{border-color:var(--acc);color:var(--acc);background:var(--acc-soft)}
+  .card .meta .row2 button.danger:hover{border-color:var(--err);color:var(--err);background:var(--err-soft)}
+  .empty{grid-column:1/-1;text-align:center;color:var(--sub);padding:40px 0;font-size:14px}
+
+  /* ===== 导入中的骨架屏（灰格 + 转圈），避免用户以为拖拽失败而重复拖动 ===== */
+  .loading-box{display:contents}
+  .card.skel{cursor:default;pointer-events:none;animation:skelIn .18s ease-out}
+  .card.skel .thumb{background:linear-gradient(100deg,#e9edf3 30%,#f4f7fb 50%,#e9edf3 70%);
+    background-size:220% 100%;animation:skelShimmer 1.3s linear infinite}
+  .spinner{width:30px;height:30px;border-radius:50%;border:3px solid rgba(47,111,237,.2);
+    border-top-color:var(--acc);animation:spin .8s linear infinite}
+  .card.skel .meta .row1 .name{background:#eef1f6;border-radius:4px;height:11px;flex:0 0 58%}
+  .sk-line{height:9px;background:#eef1f6;border-radius:4px;width:40%}
+  .sk-line.short{width:26%}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes skelShimmer{from{background-position:120% 0}to{background-position:-120% 0}}
+  @keyframes skelIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){
+    .card.skel .thumb{animation:none}
+    .spinner{animation-duration:1.8s}
+  }
+
+  /* ===== 底部操作条 ===== */
+  .foot{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
+    padding:10px 22px;display:flex;align-items:center;gap:18px;z-index:30}
+  .foot .info{color:var(--sub);font-size:13px;flex:1;min-width:0}
+  .foot .info b{color:var(--ink)}
+  .foot button{border:none;border-radius:8px;cursor:pointer;font-size:14px;padding:9px 20px}
+  .foot button.ghost{background:#fff;border:1px solid var(--line) !important;color:var(--sub);font-size:13px;padding:8px 14px}
+  .foot button.ghost:hover:not(:disabled){border-color:var(--acc) !important;color:var(--acc);background:var(--acc-soft)}
+  .foot button.ghost:disabled{opacity:.45;cursor:not-allowed}
+  #clearBtn{background:#fff;border:1px solid var(--line) !important;color:var(--sub)}
+  #clearBtn:hover{border-color:var(--err) !important;color:var(--err)}
+  #exportBtn{background:var(--ok);color:#fff;font-weight:600}
+  #exportBtn:hover{filter:brightness(1.08)}
+  #exportBtn:disabled{background:#9db8a6;cursor:not-allowed}
+
+  /* ===== 预览遮罩 ===== */
+  #preview{display:none;position:fixed;inset:0;background:rgba(10,16,28,.66);z-index:40;align-items:center;justify-content:center;overflow:hidden}
+  #preview.show{display:flex}
+  #preview .box{position:relative;background:#fff;border-radius:10px;padding:12px;max-width:94vw;max-height:94vh;display:flex;flex-direction:row;overflow:hidden}
+  /* 左：图片舞台 + 说明 + 单页设置；右：缩放滑条 + 导航缩略图 */
+  #preview .pv-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+  /* 舞台：吃掉 pv-main 的剩余空间（下方说明/工具条/标注条 flex:none），
+   * 同时用 max-height 兜底，避免新增「标注工具条」后把舞台压扁 */
+  /* 舞台必须是「确定高度 + 不参与 flex 收缩」：
+   * 高度若交给 flex 撑（basis auto/0），而图片尺寸又是按舞台算出来的，两者互为因果收敛到偏小值。
+   * 减去的固定开销用 --pvc 变量，由 lockPreviewWidth() 实测后写入
+   * （曾经写死 175px，新增色板行后工具条变高，按钮就被挤出面板了）。 */
+  #preview .stage{overflow:hidden;display:flex;align-items:center;justify-content:center;flex:none;
+    height:min(74vh, calc(94vh - var(--pvc, 175px)));max-height:min(74vh, calc(94vh - var(--pvc, 175px)))}
+  /* 左右翻页大按钮：挂在 #preview 上（绝对定位，相对全屏遮罩），
+   * 位于白色 .box【之外】的两侧留白里，不遮挡任何内容。
+   * 水平位置由 positionPvNav() 按 .box 实际位置计算后写成内联 left ——
+   * 所以这里不能写 right（left+right 并存会把按钮横向拉长），下面的值只是首帧占位。 */
+  .pv-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:50;
+    width:56px;height:118px;display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--line);border-radius:12px;background:#fff;
+    color:var(--ink);font-size:32px;line-height:1;cursor:pointer;user-select:none;
+    box-shadow:0 4px 16px rgba(10,16,28,.3);transition:.15s}
+  .pv-nav:hover{background:var(--acc-soft);border-color:var(--acc);color:var(--acc);box-shadow:0 6px 20px rgba(47,111,237,.35)}
+  .pv-nav:active{transform:translateY(-50%) scale(.96)}
+  .pv-nav:disabled{opacity:.32;cursor:not-allowed;box-shadow:none}
+  .pv-nav.prev{left:12px}
+  .pv-nav.next{left:calc(100% - 68px)}
+  @media (max-width:1080px){ .pv-nav{width:44px;height:88px;font-size:26px} }
+  #preview .cap,#preview .pv-tools,#preview .pv-edit{flex:none}
+  #preview .pv-side{flex:none;width:150px;display:flex;flex-direction:column;align-items:center;gap:7px;
+    padding-left:10px;margin-left:8px;border-left:1px solid var(--line)}
+  /* .pv-sheet：把 <img> 与编辑 canvas 叠成一个整体，transform 施加在容器上，两者永远对齐。
+   * img 的显示尺寸由 JS（layoutSheet）按舞台尺寸算出后写成固定 px，不能写 max-width/max-height:100%
+   * —— sheet 与 img 互相以对方为百分比参照会形成循环约束，浏览器解不出确定尺寸，
+   * 结果 sheet 尺寸不等于图片真实渲染区，overlay 的坐标换算就会整体错位。 */
+  #preview .pv-sheet{position:relative;display:inline-flex;flex:none;max-width:100%;max-height:100%;
+    transform-origin:center center;transition:transform .15s ease}
+  #preview .pv-sheet img{display:block;background:#fff;object-fit:fill;
+    box-shadow:0 2px 10px rgba(20,30,50,.22);user-select:none;-webkit-user-drag:none;cursor:zoom-in}
+  #preview .pv-sheet.zoomed img{cursor:grab}
+  #preview .pv-sheet.dragging{transition:none!important}
+  #preview .pv-sheet.dragging img{cursor:grabbing!important}
+  #preview .pv-sheet{transition:transform .15s ease}
+  /* overlay 在预览打开期间始终接收指针事件。
+   * 旧写法只在 .editing（即「非选择」工具）时放开，而 .editing 又是 `t !== 'select'` 才加，
+   * 结果切到「选择」时点击被 img 吃掉，永远选不中已有标注 —— 偏偏 select 最需要点击。
+   * 现改为：.editing 恒开（可交互），.drawing 只控制十字光标。 */
+  #pvOverlay{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;touch-action:none}
+  #preview .pv-sheet.editing #pvOverlay{pointer-events:auto}
+  #preview .pv-sheet.drawing img{cursor:crosshair}
+  #preview .pv-sheet.drawing.zoomed img{cursor:crosshair}
+  /* 预览内的标注编辑工具条 */
+  .pv-edit{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:6px;padding:7px 4px 0;border-top:1px solid var(--line)}
+  .pv-edit button.tb{border:1px solid var(--line);background:#fff;color:var(--sub);font-size:12px;
+    padding:4px 10px;border-radius:6px;cursor:pointer;transition:.12s}
+  .pv-edit button.tb:hover{border-color:var(--acc);color:var(--acc);background:var(--acc-soft)}
+  .pv-edit button.tb.on{border-color:var(--acc);color:#fff;background:var(--acc)}
+  .pv-edit button.tb:disabled{opacity:.4;cursor:not-allowed}
+  .pv-edit .sw{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--sub)}
+  .pv-edit input[type=color]{width:26px;height:22px;padding:0;border:1px solid var(--line);border-radius:5px;background:#fff;cursor:pointer}
+  .pv-edit input[type=range]{width:78px;accent-color:var(--acc)}
+  .pv-edit select{color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-size:12px;background:#fff}
+  .pv-edit .note{width:100%;font-size:11.5px;color:var(--sub);line-height:1.5}
+  /* 文本框就地编辑浮层 */
+  #pvEditor{position:absolute;display:none;z-index:5}
+  #pvEditor textarea{width:100%;height:100%;resize:none;border:2px solid var(--acc);border-radius:3px;
+    padding:2px 4px;font-family:inherit;line-height:1.35;outline:none;overflow:hidden;background:rgba(255,255,255,.94)}
+  #preview .cap{font-size:12.5px;color:var(--sub);padding:8px 4px 0;text-align:center}
+  /* 预览内的「本页单独设置」工具条（顶部两个下拉是全局，这里是单页覆盖） */
+  .pv-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:8px;padding:8px 4px 0;border-top:1px solid var(--line)}
+  .pv-tools label{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--sub);white-space:nowrap}
+  .pv-tools select{color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:5px 7px;font-size:12.5px;background:#fff;max-width:230px}
+  .pv-tools .reset{border:1px solid var(--line);background:#fff;color:var(--sub);font-size:12px;padding:5px 10px;border-radius:6px;cursor:pointer}
+  .pv-tools .reset:hover{border-color:var(--acc);color:var(--acc);background:var(--acc-soft)}
+  .pv-tools .note{width:100%;font-size:12px;color:var(--warn);line-height:1.5}
+  /* 右侧缩放控制：＋/－ 按钮 + 竖向滑条 + 百分比 */
+  .pv-zbtn{width:26px;height:22px;flex:none;border:1px solid var(--line);background:#fff;color:var(--sub);
+    font-size:13px;line-height:1;border-radius:6px;cursor:pointer}
+  .pv-zbtn:hover{border-color:var(--acc);color:var(--acc);background:var(--acc-soft)}
+  .pv-zoom{flex:none;width:26px;height:150px;display:flex;justify-content:center;cursor:pointer;touch-action:none}
+  .pv-zoom-track{position:relative;width:8px;height:100%;background:#e3e7ee;border-radius:99px}
+  .pv-zoom-fill{position:absolute;left:0;right:0;bottom:0;background:var(--acc);border-radius:99px}
+  .pv-zoom-knob{position:absolute;left:50%;width:16px;height:16px;margin-left:-8px;margin-bottom:-8px;
+    background:#fff;border:2px solid var(--acc);border-radius:50%;box-shadow:0 1px 3px rgba(20,30,50,.25)}
+  .pv-zoom-val{flex:none;font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
+  /* 导航缩略图：放大后显示当前视口在原图中的位置，可直接在图上拖动 */
+  .pv-map{position:relative;flex:none;width:140px;height:150px;background:#f1f4f9;border:1px solid var(--line);
+    border-radius:8px;overflow:hidden;display:none;cursor:move;touch-action:none;
+    align-items:center;justify-content:center}
+  .pv-map.show{display:flex}
+  /* 用 max-* 而非 object-fit：让元素盒正好等于图片内容区，视口框比例才算得准 */
+  .pv-map img{max-width:100%;max-height:100%;display:block;
+    user-select:none;-webkit-user-drag:none;pointer-events:none}
+  .pv-map-view{position:absolute;border:2px solid var(--acc);background:rgba(47,111,237,.14);
+    border-radius:2px;pointer-events:none;box-sizing:border-box}
+  #preview .zoom-hint{position:absolute;bottom:46px;left:50%;transform:translateX(-50%);background:rgba(30,40,60,.78);color:#fff;font-size:12px;padding:4px 14px;border-radius:99px;pointer-events:none;opacity:0;transition:opacity .3s;white-space:nowrap;z-index:2}
+  #preview .zoom-hint.show{opacity:1}
+  #preview .close-btn{position:absolute;right:-6px;top:-6px;width:30px;height:30px;border-radius:50%;border:none;background:#222b38;color:#fff;cursor:pointer;font-size:16px;line-height:1;z-index:3}
+
+  /* ===== 进度遮罩 ===== */
+  #progress{display:none;position:fixed;inset:0;background:rgba(255,255,255,.88);z-index:50;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+  #progress.show{display:flex}
+  #bar{width:min(440px,80vw);height:10px;background:#e3e7ee;border-radius:99px;overflow:hidden}
+  #bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
+  #progText{font-size:14px;color:var(--sub);max-width:80vw;text-align:center}
+  #progTitle{font-size:15px}
+
+  /* ===== toast ===== */
+  #toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%);background:#222b38;color:#fff;
+    padding:9px 18px;border-radius:8px;font-size:13.5px;z-index:60;opacity:0;pointer-events:none;transition:.25s;max-width:80vw}
+  #toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>📄 创立PDF编辑器</h1>
+  <span class="sub">纯本地运行 · 文件不上传 · 多功能 PDF 编辑</span>
+  <span class="lic">MIT 开源 · © 2026 马创立 · 所有处理都在你的浏览器里完成，文件不会离开本机</span>
+</header>
+<div class="wrap">
+ <div class="cols">
+
+  <!-- 左：导入 + 页面网格 -->
+  <div class="col-main">
+
+  <!-- 导入 -->
+    <div id="dropzone">
+      <div class="big">把 PDF 或图片拖到这里，或点击选择</div>
+      <button id="pickBtn" type="button">选择 PDF 或图片</button>
+      <div class="tip">支持多个 PDF / 图片（JPG、PNG、HEIC）同时导入、可多次添加；页面将按导入顺序排成统一页面流，拖拽卡片即可调整顺序（即合并顺序）</div>
+      <input id="fileInput" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,application/pdf,image/jpeg,image/png,image/heic,image/heif" hidden>
+    </div>
+
+  <!-- 页面网格 -->
+    <div class="list" id="list"></div>
+  </div><!-- /col-main -->
+
+  <!-- 右：设置（四张卡，全局生效） -->
+  <aside class="col-side">
+    <div class="side-t">设置</div>
+    <div class="settings">
+        <div class="scard">
+          <label>画质档位
+            <select id="qualitySel">
+              <option value="q-faithful">矢量保真 · 原样</option>
+              <option value="q-high">高清 · 300 DPI</option>
+              <option value="q-std">标准 · 200 DPI</option>
+              <option value="q-lite">精简 · 150 DPI</option>
+            </select>
+          </label>
+          <div class="hint" id="qualityHint"></div>
+          <span class="est" id="estText">未导入文件</span>
+        </div>
+
+        <!-- 卡片2：图像增强 -->
+        <div class="scard">
+          <label>白底增强
+            <select id="enhanceSel">
+              <option value="none">不增强（默认）</option>
+              <option value="light">轻度</option>
+              <option value="standard">标准</option>
+            </select>
+          </label>
+          <div class="hint" id="enhanceHint"></div>
+        </div>
+
+        <!-- 卡片3：水印（全局） -->
+        <div class="scard" id="wmCard">
+          <div class="scard-t">水印 <span class="scard-tag">全部页</span>
+            <label class="swx">启用 <input type="checkbox" id="wmOn"></label>
+          </div>
+          <div class="scard-body">
+          <label class="sl">类型
+            <select id="wmType">
+              <option value="text">文字</option>
+              <option value="image">图片</option>
+            </select>
+          </label>
+          <div id="wmTextRows">
+            <label class="sl">文字 <input type="text" id="wmText" value="机密" maxlength="60" placeholder="输入水印文字"></label>
+            <label class="sl">字号 <input type="range" id="wmSize" min="8" max="140" value="48"><span class="val" id="wmSizeV">48</span></label>
+            <label class="sl">颜色 <input type="color" id="wmColor" value="#8a8a8a"></label>
+          </div>
+          <div id="wmImgRows" style="display:none">
+            <button type="button" class="mini" id="wmPickBtn">选择水印图片</button>
+            <input type="file" id="wmFile" accept="image/png,image/jpeg" hidden>
+            <div class="picked" id="wmImgName"></div>
+          </div>
+          <label class="sl">透明度 <input type="range" id="wmOpacity" min="5" max="100" value="20"><span class="val" id="wmOpacityV">20%</span></label>
+          <label class="sl">角度 <input type="range" id="wmAngle" min="-90" max="90" value="-30"><span class="val" id="wmAngleV">-30°</span></label>
+          <label class="sl">间距 <input type="range" id="wmGap" min="10" max="45" value="20"><span class="val" id="wmGapV">2.0×</span></label>
+          <div class="hint">平铺铺满整页、叠加在内容之上；改动即时反映在缩略图与预览中。</div>
+          </div>
+        </div>
+
+        <!-- 卡片4：页码（全局） -->
+        <div class="scard" id="pnCard">
+          <div class="scard-t">页码 <span class="scard-tag">全部页</span>
+            <label class="swx">启用 <input type="checkbox" id="pnOn"></label>
+          </div>
+          <div class="scard-body">
+          <label class="sl">位置
+            <select id="pnPos">
+              <option value="center">居中下方</option>
+              <option value="left">左下角</option>
+              <option value="right">右下角</option>
+            </select>
+          </label>
+          <label class="sl">格式
+            <select id="pnFmt">
+              <option value="n">3</option>
+              <option value="n-m">3 / 20</option>
+              <option value="page-n">第 3 页</option>
+              <option value="page-n-m">第 3 页 / 共 20 页</option>
+            </select>
+          </label>
+          <label class="sl">字号 <input type="range" id="pnSize" min="6" max="40" value="12"><span class="val" id="pnSizeV">12</span></label>
+          <label class="sl">颜色 <input type="color" id="pnColor" value="#333333"></label>
+          <label class="sl">起始编号 <input type="number" id="pnStart" min="1" max="999" value="1"></label>
+          <label class="sl">首页不加 <input type="checkbox" id="pnSkip"></label>
+          <div class="hint">固定在版面底部、不随页面旋转改变；拖动排序后编号自动跟着变。</div>
+          </div>
+        </div>
+    </div>
+  </aside>
+ </div><!-- /cols -->
+</div>
+
+<!-- 底部操作 -->
+<div class="foot">
+  <div class="info" id="footInfo">尚未导入 PDF</div>
+  <button id="undoBtn" class="ghost" type="button" title="撤销（Ctrl+Z）" disabled>↶ 撤销</button>
+  <button id="redoBtn" class="ghost" type="button" title="重做（Ctrl+Shift+Z）" disabled>↷ 重做</button>
+  <button id="clearBtn" type="button">清空</button>
+  <button id="exportBtn" type="button" disabled>生成 PDF</button>
+</div>
+
+<!-- 预览 -->
+<div id="preview">
+  <!-- 翻页按钮放在白色面板【之外】：面板两侧刚好有留白，
+       放在面板里会压住正文（用户反馈「对内容形成遮挡」）。
+       水平位置由 positionPvNav() 按 .box 的实际位置算出来。 -->
+  <button type="button" class="pv-nav prev" id="pvPrev" title="上一页（←）" aria-label="上一页">‹</button>
+  <button type="button" class="pv-nav next" id="pvNext" title="下一页（→）" aria-label="下一页">›</button>
+  <div class="box">
+  <div class="pv-main">
+    <div class="stage">
+      <div class="pv-sheet" id="pvSheet">
+        <img id="pvImg" alt="">
+        <canvas id="pvOverlay"></canvas>
+        <div id="pvEditor"><textarea id="pvEditorTa" spellcheck="false"></textarea></div>
+      </div>
+    </div>
+    <div class="cap" id="pvCap"></div>
+    <div class="pv-tools" id="pvTools">
+    <label>本页画质
+      <select id="pvQualitySel">
+        <option value="">跟随全局</option>
+        <option value="q-faithful">矢量保真 · 原样</option>
+        <option value="q-high">高清 · 300 DPI</option>
+        <option value="q-std">标准 · 200 DPI</option>
+        <option value="q-lite">精简 · 150 DPI</option>
+      </select>
+    </label>
+    <label>本页白底增强
+      <select id="pvEnhanceSel">
+        <option value="">跟随全局</option>
+        <option value="none">不增强</option>
+        <option value="light">轻度</option>
+        <option value="standard">标准</option>
+      </select>
+    </label>
+    <button type="button" class="reset" id="pvReset">恢复跟随全局</button>
+    <div class="note" id="pvNote"></div>
+  </div>
+
+  <!-- 预览内的标注编辑工具条 -->
+  <div class="pv-edit" id="pvEdit">
+    <button type="button" class="tb" id="tbSel" data-tool="select">选择</button>
+    <button type="button" class="tb" id="tbMos" data-tool="mosaic">马赛克</button>
+    <button type="button" class="tb" id="tbBr" data-tool="brush">画笔</button>
+    <button type="button" class="tb" id="tbHl" data-tool="highlight">高亮</button>
+    <button type="button" class="tb" id="tbTxt" data-tool="text">文本框</button>
+    <!-- 仅图片页出现：直接调整图片在页面里的缩放与位置 -->
+    <button type="button" class="tb" id="tbImg" data-tool="image" style="display:none">图片</button>
+    <button type="button" class="tb" id="tbImgFit" style="display:none">适应页面</button>
+    <span class="sw" id="edColorWrap">颜色 <input type="color" id="edColor" value="#ffd400"></span>
+    <span class="sw" id="edSizeWrap">大小 <input type="range" id="edSize" min="1" max="30" value="8"><span class="val" id="edSizeV">8</span></span>
+    <button type="button" class="tb" id="tbDel">删除选中</button>
+    <!-- 撤销/重做成组：工具条放不下时整体换行，不会被拆散到两行 -->
+    <span class="sw" id="edHist">
+      <button type="button" class="tb" id="tbUndo">撤销</button>
+      <button type="button" class="tb" id="tbRedo">重做</button>
+    </span>
+    <div class="note" id="edNote">选择工具后可在页面上拖拽绘制；点「选择」可选中已有标注拖动/删除。</div>
+  </div>
+  </div><!-- /pv-main -->
+  <div class="pv-side">
+    <button type="button" class="pv-zbtn" id="pvZoomIn" title="放大">＋</button>
+    <div class="pv-zoom" id="pvZoomBar" title="拖动缩放">
+      <div class="pv-zoom-track" id="pvZoomTrack">
+        <div class="pv-zoom-fill" id="pvZoomFill"></div>
+        <div class="pv-zoom-knob" id="pvZoomKnob"></div>
+      </div>
+    </div>
+    <button type="button" class="pv-zbtn" id="pvZoomOut" title="缩小">－</button>
+    <div class="pv-zoom-val" id="pvZoomVal">100%</div>
+    <div class="pv-map" id="pvMap" title="拖动可移动画面">
+      <img id="pvMapImg" alt="">
+      <div class="pv-map-view" id="pvMapView"></div>
+    </div>
+  </div>
+  <div class="zoom-hint" id="zoomHint">滚轮缩放 · 拖拽移动 · 右侧滑条与导航图 · Esc 关闭</div>
+  <button type="button" class="close-btn" id="pvClose" aria-label="关闭">✕</button>
+</div></div>
+
+<!-- 进度 -->
+<div id="progress"><div id="progTitle">正在处理…</div><div id="bar"><i id="barFill"></i></div><div id="progText"></div></div>
+<div id="toast"></div>
+
+<!-- ===== 库：开发期引用 lib/，交付构建为单文件时会内嵌 ===== -->
+<script src="lib/pdf-lib.min.js"></script>
+<script src="lib/pdf.min.js"></script>
+<script src="lib/heic2any.min.js"></script>
+
+<script>
+'use strict';
+/* =====================================================================
+ * PDF 编辑器 · 主程序
+ * 数据模型（页面流）：
+ *   files: [{ id, name, size, kind, ... }]          // 来源文件（kind: 'pdf'|'image'）
+ *   pdf 文件: bytes 持源字节；image 文件: bitmap/natW/natH/heic/proxyBytes
+ *   pages: [{ uid, fileId, fileName, kind,           // 页面流（扁平，顺序即导出顺序）
+ *             srcNo,                                // PDF: 页号；image: 1
+ *             w, h,                                 // 源页尺寸(pt)或图片旋转前逻辑尺寸
+ *             rot, hMirror, vMirror,                // 编辑操作清单
+ *             thumb, err }]                         // 缩略图 dataURL / 错误标记
+ * 撤销重做：history 栈存放 pages 的 JSON 快照（操作清单延迟写入，导出时才真正生成）
+ * ===================================================================== */
+
+/* ---- 基础工具 ---- */
+const $ = id => document.getElementById(id);
+
+function toast(msg, ms = 2600) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), ms);
+}
+const fmtBytes = b => b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB'
+  : b >= 1024 ? (b / 1024).toFixed(0) + ' KB' : b + ' B';
+
+/* ---- 全局状态（后续步骤填充实现） ---- */
+const state = {
+  files: [],        // 来源文件元信息（含 pdf/image 两类）
+  pages: [],        // 扁平页面流（kind: 'pdf' | 'image'）
+  fileSeq: 0,       // 文件自增 id
+  pageSeq: 0,       // 页面自增 uid
+  dragUid: null,    // 拖拽中的 uid
+  thumbCache: {},   // uid -> 缩略图缓存（PDF: pdf.js 原始位图；image: 解码位图）
+  imageCache: {},   // uid -> 已加载的 Image 对象（用于 PDF 缩略图）
+  imgSettings: { paper: 'A4', orient: 'auto', fit: 'contain', enhance: 'none' },  // 仅图片页生效
+  fileColors: ['#2f6fed', '#1f9d55', '#d97706', '#8b5cf6', '#dc2626', '#0891b2', '#db2777', '#65a30d'],
+  busy: false,
+  importing: false,  // 导入进行中（用于骨架屏与防重复拖拽）
+  pending: [],       // 导入中的骨架卡片 [{ key, label, color }]
+  skelSeq: 0,
+  dropIndex: -1,     // 拖拽时的目标插入位（0..pages.length），便于落点预览
+  previewUid: null,  // 当前预览的页面 uid（用于单页设置回写与异步渲染防串台）
+  /* 全局叠加层：水印 / 页码（对所有页生效，改动即时反映在缩略图与预览） */
+  overlay: {
+    wm: { on: false, type: 'text', text: '机密', size: 48, color: '#8a8a8a', opacity: 0.20, angle: -30, gap: 2.0 },
+    pn: { on: false, pos: 'center', fmt: 'n-m', size: 12, color: '#333333', start: 1, skip: false }
+  },
+  wmImage: null,     // 水印图片（HTMLImageElement，不进历史快照）
+  /* 预览内标注工具的当前状态。
+   * colors 按工具各记一份（高亮荧光黄 / 正文墨色 / 画笔朱红），切工具时回填到选色器。
+   * mosB 与 brW 都是「相对页宽的千分比」（8 → 0.008），这样缩略图和导出等比一致。 */
+  edit: { tool: 'select', colors: { highlight: '#ffd400', text: '#1f2733', brush: '#e03131' },
+          mosB: 8, brW: 12, txtS: 14, sel: -1 },
+  history: [],       // 撤销栈（JSON 快照字符串）
+  future: []         // 重做栈
+};
+
+/* 图片支持扩展名（HEIC 需 heic2any 转码） */
+const IMG_EXT = ['jpg', 'jpeg', 'png', 'heic', 'heif'];
+const extOf = name => (name.split('.').pop() || '').toLowerCase();
+const isImgName = name => IMG_EXT.includes(extOf(name));
+const isHeicName = name => /\.(heic|heif)$/i.test(name);
+const isPdfName = name => /\.pdf$/i.test(name) || /\/pdf$/.test(name || '');
+
+/* ---- pdf.js worker：单文件构建时经 __PDFJS_WORKER_B64__ 内嵌；开发期回退相对路径 ---- */
+(function initPdfjsWorker() {
+  if (!window.pdfjsLib) return;
+  let b64 = '';
+  try { b64 = (typeof __PDFJS_WORKER_B64__ !== 'undefined' && __PDFJS_WORKER_B64__) || window.__PDFJS_WORKER_B64__ || ''; } catch (e) {}
+  if (b64) {
+    try {
+      const raw = atob(b64);
+      const bin = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bin[i] = raw.charCodeAt(i);
+      pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([bin], { type: 'text/javascript' }));
+      return;
+    } catch (e) { console.warn('pdf.js worker 内嵌解析失败，回退相对路径：', e); }
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+})();
+
+/* ---- 压缩档位说明 ---- */
+const COMPRESS_INFO = {
+  none:   '不压缩 · 矢量保真：直接重写 PDF 结构，文字/线条/图片原样保留（镜像处理的页面会以高清图嵌入）。',
+  low:    '低压缩 · 高质量：页面转为 JPEG（质量 88%），适合追求清晰、略减体积。',
+  medium: '中压缩 · 均衡：页面转为 JPEG（质量 72%），清晰度与体积较平衡（推荐）。',
+  high:   '高压缩 · 小体积：页面转为 JPEG（质量 50%），体积最小，放大查看会有压缩痕迹。'
+};
+
+/* ---- 统一画质（4 档） ---- */
+const QUALITY = {
+  'q-faithful': { id: 'q-faithful', dpi: null, q: 0.95, vector: true,  label: '矢量保真 · 原样', dpiLabel: '' },
+  'q-high':     { id: 'q-high',     dpi: 300,   q: 0.90, vector: false, label: '高清 · 300', dpiLabel: '300 DPI' },
+  'q-std':      { id: 'q-std',      dpi: 200,   q: 0.82, vector: false, label: '标准 · 200', dpiLabel: '200 DPI' },
+  'q-lite':     { id: 'q-lite',     dpi: 150,   q: 0.72, vector: false, label: '精简 · 150', dpiLabel: '150 DPI' }
+};
+const DEFAULT_QUALITY = 'q-faithful';
+/* 旧压缩档位 → 新画质档位迁移 */
+const COMPRESS_TO_QUALITY = { none: 'q-faithful', low: 'q-high', medium: 'q-std', high: 'q-lite' };
+
+function readQuality() {
+  const v = $('qualitySel').value;
+  return QUALITY[v] || QUALITY[DEFAULT_QUALITY];
+}
+function readImgSettings() {
+  const s = {
+    paper: 'A4',
+    orient: 'auto',
+    fit: 'contain',
+    enhance: $('enhanceSel').value
+  };
+  state.imgSettings = s;
+  return s;
+}
+/* ---- 单页覆盖设置 ----
+ * 顶部两个下拉是全局；预览里可对单页覆盖，存在 page.ovq / page.ove 上。
+ * 空值 = 跟随全局。导出/缩略图/预估一律走下面两个取值函数，禁止直接读全局。
+ */
+const ENHANCE_TEXT = { none: '不增强', light: '轻度', standard: '标准' };
+function effQualityOf(page) {
+  const v = page && page.ovq;
+  return (v && QUALITY[v]) ? QUALITY[v] : readQuality();
+}
+function effEnhanceOf(page) {
+  const v = page && page.ove;
+  return (v === 'none' || v === 'light' || v === 'standard') ? v : readImgSettings().enhance;
+}
+function hasOverride(page) { return !!(page && (page.ovq || page.ove)); }
+function overrideText(page) {
+  const parts = [];
+  if (!page) return '';
+  if (page.ovq && QUALITY[page.ovq]) parts.push('画质 ' + QUALITY[page.ovq].label);
+  if (page.ove) parts.push('白底增强 ' + (ENHANCE_TEXT[page.ove] || page.ove));
+  return parts.join(' · ');
+}
+
+function enhanceHintTxt() {
+  const v = readImgSettings().enhance;
+  if (v === 'none') return '不增强（默认）。';
+  if (v === 'light') return '轻度：压灰底、文字加深，保留较多纸张细节。';
+  return '标准：强效去灰底与光影，文字更黑、印章更清晰，适合扫描件。';
+}
+
+function qualityHintTxt() {
+  const q = readQuality();
+  if (q.vector) {
+    return '矢量保真：文字可选中，图片按原分辨率输出（不放大）。';
+  }
+  return `栅格化模式：所有页面转为图片，PDF文字不可选中。预览和导出均按 ${q.dpi} DPI、质量 ${(q.q * 100).toFixed(0)}% 压缩（只缩不放）。`;
+}
+
+/* =====================================================================
+ * 全局叠加层设置：水印 / 页码
+ * ===================================================================== */
+function readOverlay() {
+  const o = state.overlay;
+  o.wm.on = $('wmOn').checked;
+  o.wm.type = $('wmType').value;
+  o.wm.text = $('wmText').value;
+  o.wm.size = +$('wmSize').value;
+  o.wm.color = $('wmColor').value;
+  o.wm.opacity = (+$('wmOpacity').value) / 100;
+  o.wm.angle = +$('wmAngle').value;
+  o.wm.gap = (+$('wmGap').value) / 10;
+  o.pn.on = $('pnOn').checked;
+  o.pn.pos = $('pnPos').value;
+  o.pn.fmt = $('pnFmt').value;
+  o.pn.size = +$('pnSize').value;
+  o.pn.color = $('pnColor').value;
+  o.pn.start = Math.max(1, Math.min(999, +$('pnStart').value || 1));
+  o.pn.skip = $('pnSkip').checked;
+  return o;
+}
+function syncOverlayLabels() {
+  $('wmSizeV').textContent = $('wmSize').value;
+  $('wmOpacityV').textContent = $('wmOpacity').value + '%';
+  $('wmAngleV').textContent = $('wmAngle').value + '°';
+  $('wmGapV').textContent = (($('wmGap').value) / 10).toFixed(1) + '×';
+  $('pnSizeV').textContent = $('pnSize').value;
+  const isImg = $('wmType').value === 'image';
+  $('wmTextRows').style.display = isImg ? 'none' : '';
+  $('wmImgRows').style.display = isImg ? '' : 'none';
+  // 折叠/展开：勾选启用才展开参数区，默认保持紧凑
+  $('wmCard').classList.toggle('open', !!$('wmOn').checked);
+  $('pnCard').classList.toggle('open', !!$('pnOn').checked);
+}
+function applyOverlayUI() {
+  const o = state.overlay;
+  $('wmOn').checked = !!o.wm.on;
+  $('wmType').value = o.wm.type;
+  $('wmText').value = o.wm.text;
+  $('wmSize').value = o.wm.size;
+  $('wmColor').value = o.wm.color;
+  $('wmOpacity').value = Math.round(o.wm.opacity * 100);
+  $('wmAngle').value = o.wm.angle;
+  $('wmGap').value = Math.round(o.wm.gap * 10);
+  $('pnOn').checked = !!o.pn.on;
+  $('pnPos').value = o.pn.pos;
+  $('pnFmt').value = o.pn.fmt;
+  $('pnSize').value = o.pn.size;
+  $('pnColor').value = o.pn.color;
+  $('pnStart').value = o.pn.start;
+  $('pnSkip').checked = !!o.pn.skip;
+  $('wmImgName').textContent = state.wmImage ? '已选择：' + (state.wmImage._name || '水印图片') : '';
+  syncOverlayLabels();
+}
+/* 叠加层改动：快照进历史 → 重绘缩略图 → 刷新预览（ Picture 与预览同一份 Guard 逻辑） */
+function onOverlayChange() {
+  pushHistory();
+  readOverlay();
+  syncOverlayLabels();          // 勾选/取消「启用」要同步刷新折叠态，否则明细不会展开
+  saveSettings();
+  afterMutate();
+  const pv = currentPreviewPage();
+  if (pv) { syncPreviewTools(pv); refreshPreviewOps(pv); }
+}
+/* 帧内合并：拖动 range 时避免每像素都重绘一次（历史快照在 pointerdown 时已打点） */
+let ovDirtyTimer = 0, ovArmed = false;
+function onOverlaySlide() {
+  readOverlay(); syncOverlayLabels(); saveSettings();
+  clearTimeout(ovDirtyTimer);
+  ovDirtyTimer = setTimeout(() => {
+    afterMutate();
+    const pv = currentPreviewPage();
+    if (pv) refreshPreviewOps(pv);
+  }, 60);
+}
+function pickWatermarkImage(file) {
+  if (!file) return;
+  if (!/^image\/(png|jpeg|jpg)$/i.test(file.type)) { toast('水印图片仅支持 PNG / JPG', 3000); return; }
+  const url = URL.createObjectURL(file);
+  const im = new Image();
+  im.onload = () => {
+    im._name = file.name;
+    state.wmImage = im;
+    $('wmImgName').textContent = '已选择：' + file.name;
+    onOverlayChange();
+  };
+  im.onerror = () => { URL.revokeObjectURL(url); toast('图片加载失败', 3000); };
+  im.src = url;
+}
+
+/* =====================================================================
+ * 撤销 / 重做
+ * 快照只记录「页面流的编辑状态」，不含体积庞大的位图与缩略图 dataURL。
+ * ===================================================================== */
+const HIST_MAX = 60;
+/* 快照结构：pages 与 overlay 走 JSON（可序列化、便宜）；
+ * files / thumbCache / imageCache 只存引用副本 —— 它们是二进制位图，无法也不该进 JSON。
+ * 少了后者，「清空 → 撤销」就拿不回来源字节与缩略图。 */
+function snapshotState() {
+  return {
+    json: JSON.stringify({
+      pages: state.pages.map(p => ({
+        uid: p.uid, fileId: p.fileId, fileName: p.fileName, kind: p.kind, srcNo: p.srcNo,
+        w: p.w, h: p.h, rot: p.rot, hMirror: !!p.hMirror, vMirror: !!p.vMirror,
+        ovq: p.ovq || null, ove: p.ove || null, ops: p.ops || [], err: p.err || null,
+        imgAdj: p.imgAdj ? Object.assign({}, p.imgAdj) : null
+      })),
+      ov: JSON.parse(JSON.stringify(state.overlay))
+    }),
+    files: state.files.slice(),
+    thumbCache: Object.assign({}, state.thumbCache),
+    imageCache: Object.assign({}, state.imageCache)
+  };
+}
+function pushHistory() {
+  state.history.push(snapshotState());
+  if (state.history.length > HIST_MAX) state.history.shift();
+  state.future.length = 0;
+  updateHistUI();
+}
+function restoreSnapshot(snap) {
+  const s = JSON.parse(snap.json);
+  const prevByUid = {};
+  state.pages.forEach(p => { prevByUid[p.uid] = p; });
+  state.overlay = s.ov || state.overlay;
+  state.files = snap.files.slice();
+  state.thumbCache = Object.assign({}, snap.thumbCache);
+  state.imageCache = Object.assign({}, snap.imageCache);
+  state.pages = s.pages.map(p => Object.assign({}, prevByUid[p.uid] || {}, {
+    uid: p.uid, fileId: p.fileId, fileName: p.fileName, kind: p.kind, srcNo: p.srcNo,
+    w: p.w, h: p.h, rot: p.rot, hMirror: !!p.hMirror, vMirror: !!p.vMirror,
+    ovq: p.ovq, ove: p.ove, ops: p.ops || [], err: p.err || null,
+    imgAdj: p.imgAdj ? Object.assign({}, p.imgAdj) : null
+  }));
+  state.edit.sel = -1;
+  applyOverlayUI();
+  afterMutate();                       // 重绘缩略图（含叠加层）+ 列表 + 底栏 + 预估
+  const pv = currentPreviewPage();
+  if (pv) { syncPreviewTools(pv); refreshPreviewOps(pv); }
+  edPropDirty = false;                 // 恢复快照后选中项已失效，控件要跟着复位
+  edImgDirty = false;
+  clearImgLive();                      // 图片调整可能被撤销，实时预览缓存要作废
+  syncSelProps();
+}
+function sameOps(a, b) {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function doUndo() {
+  if (!state.history.length) { toast('没有可撤销的操作'); return; }
+  const cur = snapshotState();
+  state.future.push(cur);
+  restoreSnapshot(state.history.pop());
+  updateHistUI();
+  toast('已撤销');
+}
+function doRedo() {
+  if (!state.future.length) { toast('没有可重做的操作'); return; }
+  const cur = snapshotState();
+  state.history.push(cur);
+  restoreSnapshot(state.future.pop());
+  updateHistUI();
+  toast('已重做');
+}
+function updateHistUI() {
+  const u = $('undoBtn'), r = $('redoBtn');
+  if (u) u.disabled = !state.history.length;
+  if (r) r.disabled = !state.future.length;
+  const a = $('tbUndo'), b = $('tbRedo');
+  if (a) a.disabled = !state.history.length;
+  if (b) b.disabled = !state.future.length;
+}
+
+/* ---- 界面骨架：仅绑定 DOM 与基础联动；编辑/导入/导出逻辑在后续步骤实现 ---- */
+function bindUI() {
+  // 导入
+  $('pickBtn').addEventListener('click', () => { if (!state.importing) $('fileInput').click(); });
+  $('fileInput').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+  const dz = $('dropzone');
+  ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault();
+    if (!state.importing) dz.classList.add('drag');
+  }));
+  ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
+  dz.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+  dz.addEventListener('click', e => {
+    if (state.importing) return;
+    if (e.target !== $('pickBtn')) $('fileInput').click();
+  });
+  // 列表点击：选中 / 多选
+  $('list').addEventListener('click', onListClick);
+
+  // ---- 全局叠加层：水印 / 页码 ----
+  ['wmType', 'wmColor'].forEach(id => $(id).addEventListener('change', onOverlayChange));
+  $('wmOn').addEventListener('change', onOverlayChange);
+  $('wmText').addEventListener('input', onOverlaySlide);
+  $('wmText').addEventListener('focus', () => { if (!ovArmed) { pushHistory(); ovArmed = true; } });
+  $('wmText').addEventListener('change', () => { ovArmed = false; });
+  // 滑条：按下时先快照（记录「改动前」的状态），否则撤销会把改完的值再写回去
+  const slideIds = ['wmSize', 'wmOpacity', 'wmAngle', 'wmGap', 'pnSize'];
+  slideIds.forEach(id => {
+    $(id).addEventListener('pointerdown', () => { if (!ovArmed) { pushHistory(); ovArmed = true; } });
+    $(id).addEventListener('input', onOverlaySlide);
+    $(id).addEventListener('change', () => {
+      if (!ovArmed) pushHistory();           // 键盘微调不经过 pointerdown
+      ovArmed = false;
+      clearTimeout(ovDirtyTimer);
+      readOverlay(); saveSettings();
+      afterMutate();
+      const pv = currentPreviewPage();
+      if (pv) refreshPreviewOps(pv);
+    });
+  });
+  $('wmPickBtn').addEventListener('click', () => $('wmFile').click());
+  $('wmFile').addEventListener('change', e => { pickWatermarkImage(e.target.files[0]); e.target.value = ''; });
+  ['pnOn', 'pnPos', 'pnFmt', 'pnColor', 'pnSkip'].forEach(id => $(id).addEventListener('change', onOverlayChange));
+  $('pnSize').addEventListener('input', onOverlaySlide);
+  $('pnStart').addEventListener('change', onOverlayChange);
+
+  // ---- 撤销 / 重做 ----
+  $('undoBtn').addEventListener('click', doUndo);
+  $('redoBtn').addEventListener('click', doRedo);
+  document.addEventListener('keydown', e => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '');
+    if (!(e.ctrlKey || e.metaKey) || typing) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z') { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); }
+    else if (k === 'y') { e.preventDefault(); doRedo(); }     // 兼容 Windows 习惯
+  });
+
+  // 画质档位说明联动
+  $('qualitySel').addEventListener('change', () => {
+    updateSettingsUI(true);
+    saveSettings();
+    updateEstimate();
+    // 全局档位变了，预览也要重渲染，否则图片页切档位看不出差别（PDF 页同理）
+    const pv = currentPreviewPage(); if (pv) { syncPreviewTools(pv); refreshPreviewOps(pv); }
+  });
+  $('enhanceSel').addEventListener('change', () => {
+    readImgSettings(); saveSettings(); updateEstimate(); afterMutate();
+    $('enhanceHint').textContent = enhanceHintTxt();
+    const pv = currentPreviewPage(); if (pv) syncPreviewTools(pv);
+  });
+
+  // 拖拽排序（事件委托：list 上处理）
+  const list = $('list');
+  list.addEventListener('dragstart', onDragStart);
+  list.addEventListener('dragover', onDragOver);
+  list.addEventListener('dragleave', onDragLeave);
+  list.addEventListener('drop', onDrop);
+  list.addEventListener('dragend', onDragEnd);
+  // 列表滚动/窗口变化时若正在拖拽，重新定位指示条
+  window.addEventListener('scroll', () => { if (state.dragUid != null && state.dropIndex >= 0) drawDropInd(state.dropIndex); }, true);
+  window.addEventListener('resize', () => { if (state.dragUid != null && state.dropIndex >= 0) drawDropInd(state.dropIndex); });
+
+  // 底部
+  $('clearBtn').addEventListener('click', clearAll);
+  $('exportBtn').addEventListener('click', doExport);
+
+  // 预览内的单页设置（画质 / 白底增强：覆盖全局，只影响当前页）
+  $('pvQualitySel').addEventListener('change', () => {
+    const p = currentPreviewPage(); if (!p) return;
+    pushHistory();
+    p.ovq = $('pvQualitySel').value || null;
+    applyPreviewOverride(p);
+  });
+  $('pvEnhanceSel').addEventListener('change', () => {
+    const p = currentPreviewPage(); if (!p) return;
+    pushHistory();
+    p.ove = $('pvEnhanceSel').value || null;
+    applyPreviewOverride(p);
+  });
+  $('pvReset').addEventListener('click', () => {
+    const p = currentPreviewPage(); if (!p) return;
+    pushHistory();
+    p.ovq = null; p.ove = null;
+    applyPreviewOverride(p);
+    toast('已恢复跟随全局设置');
+  });
+
+  // 预览关闭
+  $('pvClose').addEventListener('click', closePreview);
+  $('preview').addEventListener('click', e => { if (e.target === $('preview')) closePreview(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePreview(); });
+}
+
+function saveSettings() {
+  try {
+    const s = { quality: $('qualitySel').value,
+      enhance: $('enhanceSel').value,
+      ov: JSON.parse(JSON.stringify(state.overlay)) };
+    localStorage.setItem('pdfe_settings', JSON.stringify(s));
+  } catch (e) {}
+}
+function updateSettingsUI(save) {
+  $('qualityHint').textContent = qualityHintTxt();
+  $('enhanceHint').textContent = enhanceHintTxt();
+  if (save) saveSettings();
+}
+function applySaved() {
+  try {
+    const s = JSON.parse(localStorage.getItem('pdfe_settings'));
+    if (s) {
+      // 兼容旧压缩档位
+      let q = s.quality;
+      if (!q && s.compress) q = COMPRESS_TO_QUALITY[s.compress] || DEFAULT_QUALITY;
+      if (q && QUALITY[q]) $('qualitySel').value = q;
+      // 强制重置白底增强为"不增强"（清除旧设置）
+      $('enhanceSel').value = 'none';
+      delete s.enhance;
+      localStorage.setItem('pdfe_settings', JSON.stringify(s));
+      readImgSettings();
+      // 恢复水印 / 页码设置（字段缺失时用默认值兜底）
+      if (s.ov) {
+        state.overlay.wm = Object.assign(state.overlay.wm, s.ov.wm || {});
+        state.overlay.pn = Object.assign(state.overlay.pn, s.ov.pn || {});
+        state.overlay.wm.on = false;      // 每次启动默认关闭，避免带着上次的水印导出
+        state.overlay.pn.on = false;
+      }
+    }
+  } catch (e) {}
+  applyOverlayUI();
+  setTool('select');
+  updateHistUI();
+  updateSettingsUI(false);
+}
+
+/* 预估区与底栏信息（编辑模块填充数据后由内部调用更新） */
+/* 兜底 bytesPerPixel：仅在「采样尚未完成」的首帧使用。
+ * 实测同一档位下不同文件能差 10 倍以上（黑白文档压得动、彩色扫描压不动），
+ * 所以这里只给中位数，采样出结果后立刻被真实值替换。 */
+const QUALITY_BPP = { 'q-faithful': 0.15, 'q-high': 0.10, 'q-std': 0.075, 'q-lite': 0.06 };
+/* PDF 页栅格化：目标像素 = 页宽pt * 页高pt * (DPI/72)^2 */
+function estPdfRasterPx(page, q) {
+  const dpi = q.dpi || 300;
+  const s = dpi / 72;
+  const w = page.hMirror || page.vMirror ? page.w : (page.rot % 180 !== 0 ? page.h : page.w);
+  const h = page.hMirror || page.vMirror ? page.h : (page.rot % 180 !== 0 ? page.w : page.h);
+  return Math.ceil(w * s) * Math.ceil(h * s);
+}
+/* 图片页栅格像素：导出的是「整页」（含纸张白边）的栅格，所以按整页算，与 PDF 页口径一致 */
+function estImageRasterPx(page, q) {
+  const b = getImageBitmap(page);
+  if (!b) return 0;
+  const s = readImgSettings();
+  const plan = planForImage(page, q, s);
+  const scale = plan.targetW / Math.max(plan.drawWpt, 1e-6);   // px / pt
+  return Math.ceil(plan.pageW * scale) * Math.ceil(plan.pageH * scale);
+}
+/* 该页是走「矢量拷贝」还是必须栅格化（与导出判断保持一致） */
+function estIsVectorPage(page, pq, pEnhOn) {
+  if (page.kind === 'image') return false;
+  return !!pq.vector && !page.hMirror && !page.vMirror && !pEnhOn && !pageNeedsRaster(page);
+}
+function estRasterPx(page, pq) {
+  return page.kind === 'image' ? estImageRasterPx(page, pq) : estPdfRasterPx(page, pq);
+}
+/* 同步估算：矢量页按源文件均摊，栅格页用当前 bpp（采样前是兜底值，采样后是实测值） */
+function estimateBytes() {
+  let est = 0;
+  for (const page of state.pages) {
+    const pq = effQualityOf(page);                    // 单页覆盖优先
+    const pEnhOn = effEnhanceOf(page) !== 'none';
+    if (estIsVectorPage(page, pq, pEnhOn)) {
+      const fmeta = state.files.find(x => x.id === page.fileId);
+      if (fmeta && fmeta.bytes && fmeta.pageCount) {
+        est += (fmeta.bytes.byteLength || fmeta.bytes.length) / fmeta.pageCount;
+        continue;
+      }
+    }
+    // 系数按「档位 + 来源文件」取；没采到这一组就退回首帧兜底值
+    const c = (estBpp && estBpp[pq.id + '|' + (page.fileId || '_')])
+           || (estBpp && typeof estBpp[pq.id] === 'number' ? { bpp: estBpp[pq.id], ratio: 1 } : null);
+    const bpp = c ? c.bpp : (QUALITY_BPP[pq.id] || QUALITY_BPP['q-std']);
+    const ratio = c ? c.ratio : 1;
+    est += estRasterPx(page, pq) * ratio * bpp * (pEnhOn ? 1.05 : 1);
+  }
+  return est + 8192;
+}
+/* ---- 真实采样：对若干页按导出同一条路径编码，得到该内容的实际 bpp ---- */
+const EST_SAMPLE_MAX = 4;          // 最多真实编码几页：保证「每个来源文件至少 1 页」，够准又不卡
+let estBpp = null, estSig = '', estBusy = false, estTimer = null, estRun = 0;
+function currentEstSig() {
+  const q = readQuality();
+  return [q.id, state.imgSettings.enhance, JSON.stringify(state.overlay),
+    state.pages.map(p => [p.uid, p.rot, !!p.hMirror, !!p.vMirror, p.ovq || '', p.ove || '',
+      (p.ops || []).length, p.imgAdj ? p.imgAdj.s.toFixed(3) : 1].join(':')).join('|')].join('#');
+}
+async function runEstSample() {
+  if (estBusy || !state.pages.length) return false;
+  const sig = currentEstSig();
+  if (sig === estSig && estBpp) return false;          // 设置没变，不需要重算
+  const run = ++estRun;
+  estBusy = true;
+  try {
+    // 挑出需要栅格的页，均匀取样
+    const raster = [];
+    for (const page of state.pages) {
+      const pq = effQualityOf(page), pEnhOn = effEnhanceOf(page) !== 'none';
+      if (!estIsVectorPage(page, pq, pEnhOn)) raster.push(page);
+    }
+    if (!raster.length) { estSig = sig; estBpp = estBpp || {}; return false; }
+    /* 按【来源文件】分组取样，每组各自算系数。
+     * 不分组会出大问题：图片页没有 DPI 封顶、PDF 页有（源图分辨率不足时导出会降 DPI），
+     * 两类页的「估算像素 vs 实际像素」比例完全不同。用图片页的系数去外推 PDF 页，
+     * 混合文档就会系统性高估（实测高估 1.3~1.6 倍）。同文件的页通常同质，可以共用系数。 */
+    const groups = new Map();
+    for (const p of raster) {
+      const k = p.fileId || '_';
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(p);
+    }
+    const gs = Array.from(groups.values());
+    const picks = [];
+    for (const arr of gs) {                            // 第一轮：每组取中间那页
+      if (picks.length >= EST_SAMPLE_MAX) break;
+      picks.push(arr[Math.floor(arr.length / 2)]);
+    }
+    for (const arr of gs) {                            // 第二轮：页多的组再补一页，提高代表性
+      if (picks.length >= EST_SAMPLE_MAX) break;
+      const alt = arr.length > 2 ? arr[arr.length - 1] : null;
+      if (alt && picks.indexOf(alt) < 0) picks.push(alt);
+    }
+    const acc = {};
+    for (const page of picks) {
+      if (run !== estRun) return false;                // 期间又改了设置，本次作废
+      const q = effQualityOf(page);
+      try {
+        const r = await pageRasterJpeg(page, q);
+        const pxEst = estRasterPx(page, q) || r.px;
+        if (!pxEst) continue;
+        const key = q.id + '|' + (page.fileId || '_');
+        acc[key] = acc[key] || { bytes: 0, pxEst: 0, pxReal: 0 };
+        acc[key].bytes += r.jpg.length;
+        acc[key].pxEst += pxEst;
+        acc[key].pxReal += r.px;
+      } catch (e) { /* 单页失败就跳过，不至于让整个预估失效 */ }
+      await new Promise(r => setTimeout(r, 0));        // 让出主线程
+    }
+    if (run !== estRun) return false;
+    // 每组的系数 = 真实 bpp（按实际像素） + 像素校正比（吸收 DPI 封顶等差异）。
+    // 只保留【本次】结果：清空重导后 fileId 会复用，累加旧 key 会让某组拿到别组的陈旧系数。
+    const bpp = {};
+    Object.keys(acc).forEach(k => {
+      if (!acc[k].pxEst || !acc[k].pxReal) return;
+      bpp[k] = { bpp: acc[k].bytes / acc[k].pxReal, ratio: acc[k].pxReal / acc[k].pxEst };
+    });
+    estBpp = bpp; estSig = sig;
+    paintEstimate();      // 自己负责刷新：重绘不能只靠调用方，否则被抢先调用时界面会停留在旧值
+    return true;
+  } finally {
+    estBusy = false;
+    /* 采样期间设置又变了 → 必须补跑一次。
+     * 早期没有这一步，撞上这个时序就会**永久卡在「测算中」**：切档位的防抖定时器先烧掉、
+     * 定时器里的 runEstSample 又因为 estBusy 被开头的守卫直接丢回，而此刻没有任何人再排下一次采样，
+     * 界面只好一直用兜底常数（会系统性低估一两成）直到用户再动一次设置。
+     * 判据用签名比对，不用"无条件重跑"：收敛条件是「本次跑完的签名 == 当前签名」，
+     * 用户不动设置就必然相等、不会再来一轮，因此不会死循环。 */
+    if (state.pages.length && estSig !== currentEstSig()) scheduleEstSample();
+  }
+}
+function scheduleEstSample() {
+  clearTimeout(estTimer);
+  estTimer = setTimeout(async () => {
+    try { await runEstSample(); } catch (e) {}         // 重绘由 runEstSample 内部负责
+  }, 350);                                             // 防抖：拖滑条时不要每帧都重算
+}
+/* 只负责把当前估算值画到界面上 */
+function paintEstimate() {
+  const n = state.pages.length, f = state.files.length;
+  const el = $('estText');
+  if (!n) { el.textContent = '未导入文件'; return; }
+  const pt = passthroughFile();
+  if (pt) {
+    el.textContent = '已导入 1 个文件 · ' + n + ' 页 · 未做任何修改，矢量保真将原样输出（'
+      + fmtBytes(pt.size) + '，体积不变）';
+    return;
+  }
+  const est = estimateBytes();
+  const anyOv = state.pages.some(hasOverride);
+  const ovNote = overlayOn() ? '，水印/页码已开启（页面将栅格化）'
+    : (state.pages.some(hasOps) ? '，含标注（对应页将栅格化）' : '');
+  const effText = anyOv ? '，含 ' + state.pages.filter(hasOverride).length + ' 页自定义设置'
+    : (readQuality().vector ? '，PDF文字可选中' : '，所有页面按所选画质压缩');
+  // 必须比对签名：estBpp 一旦非空就永久为真，切档位后要等本档位采样完才能报「实测校准」
+  const ready = !!estBpp && estSig === currentEstSig();
+  const accu = ready ? '实测校准' : '测算中';
+  el.textContent = '已导入 ' + f + ' 个文件 · ' + n + ' 页 · 预计约 ' + fmtBytes(est)
+    + '（' + accu + effText + ovNote + '）';
+}
+function updateEstimate() {
+  paintEstimate();
+  scheduleEstSample();
+}
+/* 仅刷新底部状态文本与导出按钮（不重绘列表，供高频调用） */
+function updateFootBar() {
+  const n = state.pages.length;
+  const info = $('footInfo');
+  $('exportBtn').disabled = !n || state.busy || state.importing;
+  if (state.importing) {
+    info.textContent = '正在读取文件…' + (n ? '（已处理 ' + n + ' 页）' : '');
+    return;
+  }
+  if (!n) { info.textContent = '尚未导入 PDF'; return; }
+  info.textContent = '共 ' + n + ' 页' + (state.files.length ? '，来自 ' + state.files.length + ' 个文件' : '')
+    + ' ｜ 拖拽卡片调整顺序，顺序即导出顺序';
+}
+function updateFoot() {
+  updateFootBar();
+  renderList();
+}
+
+/* =====================================================================
+ * 导入与预览：解析 PDF → 建页面流 → pdf.js 渲染缩略图（支持来源分组）
+ * ===================================================================== */
+
+/* pdf.js 渲染单页为缩略图 dataURL（含当前旋转/镜像预览，供后续编辑态使用） */
+async function renderPageToThumb(pdf, pageNo, opts = {}) {
+  const { maxW = 220, rot = 0, hMirror = false, vMirror = false } = opts;
+  const page = await pdf.getPage(pageNo);
+  const vp1 = page.getViewport({ scale: 1 });
+  // 考虑旋转后宽高（交换）
+  const rotSwap = rot % 180 !== 0;
+  const bw = rotSwap ? vp1.height : vp1.width;
+  const bh = rotSwap ? vp1.width : vp1.height;
+  // 缩略图横向撑满 maxW，竖向按比例（卡片高约 210px，防止超高）
+  const scale = Math.min(maxW / bw, 195 / bh);
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.floor(viewport.width));
+  canvas.height = Math.max(1, Math.floor(viewport.height));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // 旋转/镜像变换顺序：先镜像后旋转（与导出模块一致）
+  const src = await renderPageCanvas(page, viewport);
+  if (rot || hMirror || vMirror) {
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    // 先应用镜像（在旋转后的坐标系中保持视觉一致：hMirror→scaleX=-1, vMirror→scaleY=-1）
+    if (rot) ctx.rotate(rot * Math.PI / 180);
+    if (hMirror) ctx.scale(-1, 1);
+    if (vMirror) ctx.scale(1, -1);
+    ctx.drawImage(src, -viewport.width / 2, -viewport.height / 2, viewport.width, viewport.height);
+    ctx.restore();
+  } else {
+    ctx.drawImage(src, 0, 0);
+  }
+  return canvas.toDataURL('image/jpeg', 0.82);
+}
+async function renderPageCanvas(page, viewport) {
+  // pdf.js 现代版：render 到临时 canvas
+  const c = document.createElement('canvas');
+  c.width = Math.floor(viewport.width); c.height = Math.floor(viewport.height);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return c;
+}
+
+/* =====================================================================
+ * 导入与预览（统一入口）：按扩展名分流 PDF / 图片
+ * ===================================================================== */
+
+/* 统一导入入口：PDF 与图片文件混合拖入/选择 */
+async function addFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  // 导入进行中就忽略重复的拖拽/选择，避免用户以为失败而反复投放
+  if (state.importing) { toast('正在处理上一个文件，请稍候…'); return; }
+  const pdfs = files.filter(f => isPdfName(f.name) || (/^application\/pdf/.test(f.type)));
+  const imgs = files.filter(f => !pdfs.includes(f) && isImgName(f.name));
+  if (!pdfs.length && !imgs.length) { toast('未发现支持的 PDF 或图片文件'); return; }
+
+  let addedFiles = 0, addedPages = 0, failed = 0;
+  state.importing = true;
+  updateFoot();
+
+  // ---- 先一次性把所有待处理项占位成灰格，让用户立即看到"对应数量"的进度 ----
+  // 图片：1 文件 = 1 页 → 直接按文件数占位
+  // PDF：页数需解析后才知道 → 先按文件数占位（标注读取中），解析出页数后再展开成逐页格子
+  const imgKeys = [], pdfKeys = [];
+  for (const f of imgs) {
+    const key = 'sk' + (++state.skelSeq);
+    imgKeys.push(key);
+    state.pending.push({ key, label: f.name, color: '#c9d2e0' });
+  }
+  for (const f of pdfs) {
+    const key = 'sk' + (++state.skelSeq);
+    pdfKeys.push(key);
+    state.pending.push({ key, label: f.name + ' · 读取中…', color: '#c9d2e0' });
+  }
+  renderList();
+  await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));   // 让灰格先画出来再做重活
+
+  try {
+    if (imgs.length) {
+      const r = await addImageFiles(imgs, imgKeys);
+      addedFiles += r.files; addedPages += r.pages; failed += r.failed;
+    }
+    if (pdfs.length) {
+      const r = await addPdfFiles(pdfs, pdfKeys);
+      addedFiles += r.files; addedPages += r.pages; failed += r.failed;
+    }
+  } finally {
+    state.importing = false;
+    clearSkeletons();
+  }
+  afterMutate();
+  if (failed) toast('⚠️ ' + failed + ' 个文件导入失败（可能已加密或损坏）', 4000);
+  else if (addedFiles) toast('✅ 已导入 ' + addedFiles + ' 个文件，共 ' + addedPages + ' 页');
+}
+
+/* 解码为位图，优先自动纠正 EXIF 拍摄方向 */
+async function toBitmap(blob) {
+  if (window.createImageBitmap) {
+    try {
+      return await createImageBitmap(blob, { imageOrientation: 'from-image' });
+    } catch (e) { /* 回退 */ }
+  }
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { res(img); URL.revokeObjectURL(url); };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('decode fail')); };
+    img.src = url;
+  });
+}
+
+/* 导入图片文件：HEIC→JPEG（heic2any）→ 位图解码
+ * 先占一个骨架卡，处理完立即替换为真缩略图（大文件时可看到进度推进）。 */
+async function importOneImage(file, skelKey) {
+  let blob = file;
+  const heic = isHeicName(file.name) || /^image\/(heic|heif)/.test(file.type);
+  let proxyBytes = file.size;
+  if (heic) {
+    proxyBytes = file.size * 2.3;         // HEIC→JPEG 一般膨胀 2~3 倍（用于体积预估）
+    const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+    blob = Array.isArray(out) ? out[0] : out;
+  } else if (/^image\/png/.test(file.type) || /\.png$/i.test(file.name)) {
+    proxyBytes = file.size;               // PNG 近似原大小
+  } else {
+    proxyBytes = file.size * 1.08;
+  }
+  const bitmap = await toBitmap(blob);
+  const fileId = ++state.fileSeq;
+  const fileName = file.name.replace(/\.[^.]+$/, '');
+  const color = state.fileColors[(state.files.length) % state.fileColors.length];
+  const fileMeta = {
+    id: fileId, name: fileName, size: file.size, kind: 'image', color,
+    bitmap, natW: bitmap.width, natH: bitmap.height, heic, proxyBytes
+  };
+  state.files.push(fileMeta);
+  const uid = ++state.pageSeq;
+  // 图片页：w/h 记录逻辑尺寸（旋转在导出/缩略时处理）；thumbCache 存位图对象
+  state.thumbCache[uid] = bitmap;
+  return {
+    page: {
+      uid, fileId, fileName, kind: 'image', srcNo: 1,
+      w: bitmap.width, h: bitmap.height,
+      rot: 0, hMirror: false, vMirror: false, err: false
+    },
+    fileMeta
+  };
+}
+
+async function addImageFiles(files, keys) {
+  let added = 0, failed = 0;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const key = keys && keys[i];
+    try {
+      const { page } = await importOneImage(file);
+      if (key) removeSkeleton(key);
+      pushImportedPages([page]);
+      added++;
+    } catch (e) {
+      console.error('图片导入失败', file.name, e);
+      if (key) removeSkeleton(key);
+      renderList();
+      failed++;
+    }
+  }
+  return { files: added, pages: added, failed };
+}
+
+/* 导入多个 PDF 文件 */
+async function addPdfFiles(files, keys) {
+  const fileList = Array.from(files || []);
+  if (!fileList.length) return { files: 0, pages: 0, failed: 0 };
+  let addedFiles = 0, addedPages = 0, failed = 0;
+  for (let fi = 0; fi < fileList.length; fi++) {
+    const file = fileList[fi];
+    const key = keys && keys[fi];
+    try {
+      const bytes = await file.arrayBuffer();
+      // pdf.js 的 getDocument({data}) 可能转移(detach)传入的 buffer，因此保存副本供导出使用
+      const fileBytes = bytes.slice(0);
+      const pdf = await window.pdfjsLib.getDocument({ data: bytes }).promise;
+      const fileId = ++state.fileSeq;
+      const fileName = file.name.replace(/\.pdf$/i, '');
+      const color = state.fileColors[(state.files.length) % state.fileColors.length];
+      const fileMeta = { id: fileId, name: fileName, size: file.size, kind: 'pdf', color, pageCount: pdf.numPages, bytes: fileBytes };
+
+      // 知道页数了：把该文件的单个占位换成逐页灰格，用户能看到"对应数量"
+      const pageKeys = [];
+      if (key) {
+        const idx = state.pending.findIndex(p => p.key === key);
+        const views = [];
+        for (let i2 = 1; i2 <= pdf.numPages; i2++) {
+          const k2 = 'sk' + (++state.skelSeq);
+          pageKeys.push(k2);
+          views.push({ key: k2, label: fileName + ' · P' + i2, color: '#c9d2e0' });
+        }
+        if (idx >= 0) state.pending.splice(idx, 1, ...views);
+        else state.pending.push(...views);
+        renderList();
+      }
+
+      const pendingPages = [];
+      // 逐页渲染缩略图（分批让出 UI）
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const thumb = await renderPageToThumb(pdf, i, { maxW: 220 });
+        const vp1 = await pdf.getPage(i).then(p => p.getViewport({ scale: 1 }));
+        const uid = ++state.pageSeq;
+        state.thumbCache[uid] = { url: thumb, w: vp1.width, h: vp1.height };  // 原始方向缩略图缓存
+        pendingPages.push({
+          uid, fileId, fileName, kind: 'pdf', srcNo: i,
+          w: vp1.width, h: vp1.height,
+          rot: 0, hMirror: false, vMirror: false,
+          err: false
+        });
+        addedPages++;
+        // 每渲染完一页就把该页追加进列表（骨架卡仍占位），让用户看到进度推进
+        if (pendingPages.length >= 4 || i === pdf.numPages) {
+          pushImportedPages(pendingPages.splice(0));
+          await new Promise(r => setTimeout(r, 0));
+        }
+        if (pageKeys[i - 1]) removeSkeleton(pageKeys[i - 1]);
+      }
+      state.files.push(fileMeta);
+      if (key) removeSkeleton(key);
+      renderList();
+      addedFiles++;
+    } catch (e) {
+      console.error('导入失败', file.name, e);
+      if (key) removeSkeleton(key);
+      renderList();
+      failed++;
+    }
+  }
+  return { files: addedFiles, pages: addedPages, failed };
+}
+
+/* =====================================================================
+ * 编辑功能：操作清单延迟写入（导出时才真正改 PDF）
+ *  - 旋转/镜像/删除/排序 只改 state.pages 元数据（rot/hMirror/vMirror/顺序）
+ *  - 撤销/重做：history/future 栈存页面流快照（含元数据、顺序、来源引用）
+ *  - 缩略图：用 thumbCache 原始位图按当前操作即时重绘，不重新解析 PDF
+ * ===================================================================== */
+
+/* 页面快照（不含 thumb 位图，thumb 存 thumbCache 独立管理） */
+/* 每次变更后：重建缩略图、重渲染、刷新工具条 */
+function afterMutate() {
+  // 所有页面缩略图按当前操作重绘
+  state.pages.forEach(p => { p.displayThumb = makeThumbFromOps(p); });
+  renderList();
+  updateFoot();
+  updateEstimate();
+  updateSettingsUI(false);
+  updatePvNav();               // 页数变化（导入/删页）后同步翻页按钮
+}
+
+/* 用原始位图 + 操作生成展示缩略图（快，无需 PDF 渲染）
+ * thumbCache[uid]：
+ *   PDF    => { url, w, h }  （原始方向缩略图 dataURL + 像素尺寸）
+ *   image  => bitmap（ImageBitmap/HTMLImageElement，可取宽高）
+ */
+/* 缩略图版面宽度（px）：按此宽度等比构建页面版面（含纸张白边） */
+const THUMB_W = 360;
+function makeThumbFromOps(page) {
+  const base = state.thumbCache[page.uid];
+  if (!base) return '';
+  let src, srcWpx, srcHpx;
+  if (page.kind === 'image') {
+    // 图片：直接用位图
+    src = base;
+    srcWpx = src.width; srcHpx = src.height;
+  } else {
+    // PDF：用缩略图 dataURL，需要缓存已加载的 Image 对象
+    if (!base.url) return '';
+    
+    // 检查缓存中是否已有加载完成的 Image
+    let cachedImg = state.imageCache[page.uid];
+    if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+      src = cachedImg;
+    } else {
+      // 创建新的 Image 并缓存
+      const img = new Image();
+      img.src = base.url;
+      state.imageCache[page.uid] = img;
+      
+      // 如果还没加载完成，返回空字符串并监听加载完成事件
+      if (!img.complete) {
+        img.onload = () => {
+          // 加载完成后重新渲染该页面的缩略图
+          page.displayThumb = makeThumbFromOps(page);
+          renderList();
+        };
+        return '';  // 返回空字符串，等待加载完成
+      }
+      src = img;
+    }
+    // 用缩略图的真实像素，而不是页面 pt 尺寸：
+    // 后者等于把 220px 的缩略图拉伸到 842×595，卡片上看着还行，一旦当预览占位图就露馅了
+    srcWpx = src.naturalWidth || base.w; srcHpx = src.naturalHeight || base.h;
+  }
+  // 版面画布：先铺满页面（含纸张白边），再把页面内容摆进去 —— 与导出共用坐标系，
+  // 这样水印/页码/OS 标注在缩略图上出现的位置就是 PDF 里真实的位置。
+  let PW, PH, dx, dy, dw, dh;
+  if (page.kind === 'image') {
+    const plan = planForImage(page, effQualityOf(page), readImgSettings());
+    const sc = THUMB_W / plan.pageW;
+    PW = THUMB_W; PH = Math.max(1, Math.round(plan.pageH * sc));
+    dx = plan.offX * sc; dy = plan.offY * sc;
+    dw = Math.max(1, plan.drawWpt * sc); dh = Math.max(1, plan.drawHpt * sc);
+  } else {
+    const swap = page.rot % 180 !== 0;
+    const pw = swap ? page.h : page.w, ph = swap ? page.w : page.h;
+    const sc = THUMB_W / Math.max(pw, 1e-6);
+    PW = THUMB_W; PH = Math.max(1, Math.round(ph * sc));
+    dx = 0; dy = 0; dw = PW; dh = PH;
+  }
+  const c = document.createElement('canvas');
+  c.width = PW; c.height = PH;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  // 内容要缩放到内容框（dw × dh），不能用源像素 srcWpx/srcHpx —— 后者比版面小得多，
+  // 画出来内容会缩在版面中央一小块（表现为缩略图比原来小一圈）。
+  // 旋转 90/270 时版面已按旋转后尺寸建，内容框在旋转前的宽高要互换。
+  const rot90 = page.rot % 180 !== 0;
+  const cw = rot90 ? dh : dw, ch = rot90 ? dw : dh;
+  ctx.save();
+  ctx.translate(dx + dw / 2, dy + dh / 2);
+  if (page.rot) ctx.rotate(page.rot * Math.PI / 180);
+  if (page.hMirror) ctx.scale(-1, 1);
+  if (page.vMirror) ctx.scale(1, -1);
+  ctx.drawImage(src, -cw / 2, -ch / 2, cw, ch);
+  ctx.restore();
+  // 应用白底增强（该页生效档位：单页覆盖优先，否则跟随全局）
+  const enhanceLevel = effEnhanceOf(page);
+  if (enhanceLevel && enhanceLevel !== 'none') enhanceCanvas(c, enhanceLevel);
+  // 叠加：水印 / 页码 / 该页标注（三种分辨率共用同一套归一化坐标）
+  drawOps(ctx, page, PW, PH, ovMeta(page));
+  return c.toDataURL('image/jpeg', 0.8);
+}
+
+/* 清空全部 */
+function clearAll() {
+  if (!state.pages.length) { toast('没有可清空的内容'); return; }
+  if (!confirm('确定清空所有已导入的页面吗？此操作不可恢复。')) return;
+  pushHistory();
+  state.files = [];
+  state.pages = [];
+  state.thumbCache = {};
+  state.imageCache = {};
+  state.fileSeq = 0; state.pageSeq = 0;
+  afterMutate();
+  toast('已清空');
+}
+
+/* ---- 拖拽排序 ----
+ * 用"插入位置指示条"替代高亮卡片本身：让用户清楚看到会落到哪个缝隙，
+ * 而不是只看到被盖住的卡片，避免"不知道拖成功了没"。
+ */
+let _dropInd = null;
+function ensureDropInd() {
+  const list = $('list');
+  if (!_dropInd || !_dropInd.isConnected) {
+    _dropInd = document.createElement('div');
+    _dropInd.className = 'drop-ind';
+    list.appendChild(_dropInd);
+  }
+  return _dropInd;
+}
+function hideDropInd() {
+  if (_dropInd) _dropInd.style.display = 'none';
+  state.dropIndex = -1;
+}
+
+/* 计算插入位：返回 0..N（在列表显示顺序上的"缝隙序号"） */
+function computeDropSlot(clientX, clientY) {
+  const list = $('list');
+  const cards = [...list.querySelectorAll('.card:not(.skel)')];
+  if (!cards.length) return 0;
+
+  // 按行分组（同一行的卡片 top 接近）
+  const rows = [];
+  for (const c of cards) {
+    const r = c.getBoundingClientRect();
+    let row = rows.find(x => Math.abs(x.top - r.top) < r.height * 0.5);
+    if (!row) { row = { top: r.top, bottom: r.bottom, items: [] }; rows.push(row); }
+    row.items.push({ c, r });
+    row.top = Math.min(row.top, r.top);
+    row.bottom = Math.max(row.bottom, r.bottom);
+  }
+  rows.sort((a, b) => a.top - b.top);
+  rows.forEach(row => row.items.sort((a, b) => a.r.left - b.r.left));
+
+  // 取纵向距离最近的一行
+  let best = rows[0], bestD = Infinity;
+  for (const row of rows) {
+    const d = clientY < row.top ? row.top - clientY
+      : clientY > row.bottom ? clientY - row.bottom : 0;
+    if (d < bestD) { bestD = d; best = row; }
+  }
+
+  // 行内按卡片中线判断插在前还是后
+  let slotInRow = best.items.length;
+  for (let i = 0; i < best.items.length; i++) {
+    const mid = best.items[i].r.left + best.items[i].r.width / 2;
+    if (clientX < mid) { slotInRow = i; break; }
+  }
+
+  let base = 0;
+  for (const row of rows) {
+    if (row === best) break;
+    base += row.items.length;
+  }
+  return base + slotInRow;
+}
+
+/* 把指示条画到指定缝隙位置 */
+function drawDropInd(slot) {
+  const list = $('list');
+  const cards = [...list.querySelectorAll('.card:not(.skel)')];
+  if (!cards.length) { hideDropInd(); return; }
+  const lr = list.getBoundingClientRect();
+  const GAP = 14;
+  let x, top, bottom;
+  if (slot >= cards.length) {
+    // 插到文末 → 高亮最后一页的右侧
+    const r = cards[cards.length - 1].getBoundingClientRect();
+    x = r.right - lr.left + GAP / 2;
+    top = r.top - lr.top; bottom = r.bottom - lr.top;
+  } else {
+    // 插到某页之前 → 高亮该页左侧的缝隙
+    const r = cards[slot].getBoundingClientRect();
+    x = r.left - lr.left - GAP / 2;
+    top = r.top - lr.top; bottom = r.bottom - lr.top;
+  }
+  const ind = ensureDropInd();
+  // 钳制在列表范围内，避免末行插到右侧时溢出
+  const maxX = lr.width - 3;
+  x = Math.max(0, Math.min(x, maxX));
+  ind.style.display = 'block';
+  ind.style.left = (x - 1.5) + 'px';
+  ind.style.top = top + 'px';
+  ind.style.height = Math.max(24, bottom - top) + 'px';
+}
+
+function onDragStart(e) {
+  const card = e.target.closest('.card');
+  if (!card || card.classList.contains('skel')) return;
+  state.dragUid = parseInt(card.dataset.uid, 10);
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(state.dragUid));
+  card.classList.add('dragging');
+}
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  if (state.dragUid == null) return;
+  const slot = computeDropSlot(e.clientX, e.clientY);
+  state.dropIndex = slot;
+  drawDropInd(slot);
+}
+function onDragLeave(e) {
+  const list = $('list');
+  if (!list.contains(e.relatedTarget)) hideDropInd();
+}
+function onDrop(e) {
+  e.preventDefault();
+  const fromUid = state.dragUid;
+  if (fromUid == null) { cleanupDrag(); return; }
+  const fromIdx = state.pages.findIndex(p => p.uid === fromUid);
+  if (fromIdx < 0) { cleanupDrag(); return; }
+
+  let slot = state.dropIndex;
+  if (slot == null || slot < 0) {
+    // 回退：按落点的卡片位置推断（拖到卡片后半则插其后）
+    const targetCard = e.target.closest('.card');
+    if (!targetCard || targetCard.classList.contains('skel')) { cleanupDrag(); return; }
+    const toUid = parseInt(targetCard.dataset.uid, 10);
+    const toIdx = state.pages.findIndex(p => p.uid === toUid);
+    if (toIdx < 0) { cleanupDrag(); return; }
+    const rect = targetCard.getBoundingClientRect();
+    slot = e.clientX > rect.left + rect.width / 2 ? toIdx + 1 : toIdx;
+  }
+  slot = Math.max(0, Math.min(state.pages.length, slot));
+  if (slot === fromIdx || slot === fromIdx + 1) { cleanupDrag(); return; }  // 位置未变
+
+  pushHistory();
+  const [moved] = state.pages.splice(fromIdx, 1);
+  const insertAt = slot > fromIdx ? slot - 1 : slot;
+  state.pages.splice(insertAt, 0, moved);
+  cleanupDrag();
+  afterMutate();                                       // 重绘后页码按新的全局序号自动更新
+  const pv = currentPreviewPage();
+  if (pv) refreshPreviewOps(pv);
+}
+function onDragEnd(e) { cleanupDrag(); }
+function cleanupDrag() {
+  state.dragUid = null;
+  hideDropInd();
+  $('list').querySelectorAll('.card').forEach(c => c.classList.remove('dragging', 'drag-over'));
+}
+
+/* 单选 / 多选逻辑 */
+function getPageByUid(uid) { return state.pages.find(p => p.uid === uid); }
+function onListClick(e) {
+  const card = e.target.closest('.card');
+  if (!card) return;
+  const uid = parseInt(card.dataset.uid, 10);
+  if (Number.isNaN(uid)) return;
+  const page = getPageByUid(uid);
+  if (!page) return;
+  // 点击缩略图放大预览（弹窗内可对本页单独设置压缩 / 白底增强）
+  if (e.target.closest('.thumb')) { openPagePreview(page); return; }
+}
+
+/* ---- 预览：生成单页高清图（旋转/镜像 + 该页生效的增强与画质） ---- */
+
+/* 注：原先这里有个 renderImagePreviewCanvas()，但早已无任何调用点
+ * （图片页预览走 buildPreviewSrc → imagePageCanvas），且它的「只缩不放」逻辑
+ * 与现在的 fit 规则冲突。已删除，避免以后误改到它。 */
+
+/* PDF 页：按该页生效画质的 DPI 渲染预览（与导出同一口径） */
+async function renderPdfPreviewCanvas(pdfBytes, page) {
+  const q = effQualityOf(page);
+  const dpi = q.vector ? 300 : q.dpi;      // 矢量保真档兜底 300 DPI（与导出一致）
+  const rot = page.rot % 360, swap = rot % 180 !== 0;
+  const pdf = await pdfjsLib.getDocument({ data: pdfBytes.slice(0) }).promise;
+  try {
+    const srcPage = await pdf.getPage(page.srcNo);
+    const vp1 = srcPage.getViewport({ scale: 1 });
+    const outW = swap ? vp1.height : vp1.width;  // 旋转后的视觉宽(pt)
+    const targetW = Math.max(240, Math.min(3000, Math.round(outW * dpi / 72)));
+    const scale = targetW / outW;
+    const hv = srcPage.getViewport({ scale });
+    const temp = document.createElement('canvas');
+    temp.width = hv.width; temp.height = hv.height;
+    const tctx = temp.getContext('2d');
+    tctx.fillStyle = '#fff'; tctx.fillRect(0, 0, temp.width, temp.height);
+    await srcPage.render({ canvasContext: tctx, viewport: hv }).promise;
+    // 注意：rot/swap 已在函数开头声明，这里不可重复声明（否则触发 TDZ 报错、预览静默退回占位图）
+    const fw = swap ? temp.height : temp.width, fh = swap ? temp.width : temp.height;
+    const cv = document.createElement('canvas');
+    cv.width = fw; cv.height = fh;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, fw, fh);
+    ctx.save();
+    ctx.translate(fw / 2, fh / 2);
+    if (rot) ctx.rotate(rot * Math.PI / 180);
+    if (page.hMirror) ctx.scale(-1, 1);
+    if (page.vMirror) ctx.scale(1, -1);
+    ctx.drawImage(temp, -temp.width / 2, -temp.height / 2);
+    ctx.restore();
+    return cv;
+  } finally { pdf.destroy(); }
+}
+
+/* 统一出口：预览始终用高清原图渲染（不按导出档位降采样），
+ * 画质档位影响 JPEG 编码质量；导出时的真实像素规模由提示区的数字体现。 */
+async function buildPreviewSrc(page) {
+  const q = effQualityOf(page);
+  const quality = q.vector ? 1.0 : (q.q || 0.9);
+  let cv = null;
+  if (page.kind === 'pdf') {
+    const f = state.files.find(x => x.id === page.fileId);
+    if (f && f.bytes) {
+      cv = await renderPdfPreviewCanvas(f.bytes, page);
+      if (cv) enhanceCanvas(cv, effEnhanceOf(page));
+    }
+  } else {
+    // 跟随画质档位渲染：否则切档位时预览毫无变化，用户感知不到清晰度差异（PDF 页本来就会变）。
+    // 矢量保真档没有 dpi，按 300 预览，与 PDF 矢量档一样保持清晰。
+    cv = imagePageCanvas(page, 0, q.dpi ? q : QUALITY['q-high']).cv;   // 页面版面（含白边），与导出同坐标系
+  }
+  if (!cv) return null;
+  drawOps(cv.getContext('2d'), page, cv.width, cv.height, ovMeta(page));
+  return cv.toDataURL('image/jpeg', quality);
+}
+
+/* 该页导出时的实际像素规模：把画质档位的影响变成看得见的数字 */
+function exportPixelsOf(page) {
+  const q = effQualityOf(page);
+  if (page.kind === 'image') {
+    // 与 PDF 页同口径：报「整页」导出像素，而不是图片内容像素。
+    // scale 取 plan 里的实际值（targetW/drawWpt），这样连降采样保护也算进去了，与实际产物一致。
+    const plan = planForImage(page, q, readImgSettings());
+    const scale = plan.targetW / Math.max(plan.drawWpt, 1e-6);
+    return { w: Math.round(plan.pageW * scale), h: Math.round(plan.pageH * scale),
+             dpi: Math.round(scale * 72), vector: false };
+  }
+  const vector = q.vector && !page.hMirror && !page.vMirror && effEnhanceOf(page) === 'none' && !pageNeedsRaster(page);
+  const swap = page.rot % 180 !== 0;
+  const pw = swap ? page.h : page.w, ph = swap ? page.w : page.h;
+  const dpi = q.vector ? 300 : q.dpi;
+  return { w: Math.round(pw * dpi / 72), h: Math.round(ph * dpi / 72), dpi, vector };
+}
+
+/* 锁定预览框宽度。宽度会跳/会不一致的两个根因都出在这里：
+ *  ① 盒子原先没有固定宽度、被内容撑开 → 换档位时工具条说明文字一长一短，盒子跟着左右跳；
+ *  ② 盒子宽度里掺了「当前页按宽高比需要的宽度 fitW」（stageMax = fitW×2.4 后再 min），
+ *     于是同一窗口下横版页与竖版页得到不同宽度 —— 实测横版 1491 / 竖版 1378，差 115px，
+ *     表现就是「翻到横版预览窗口宽一点，翻到竖版窄一点」。
+ * 现在宽度【只由视口决定】，与页面横竖版、工具条文案、下拉选中项全部解耦。
+ * 纵向开销（--pvc）仍必须实测：它决定 .stage 的高度上限，写死常数会把底部按钮挤出面板。 */
+function lockPreviewWidth(page) {
+  const box = document.querySelector('#preview .box');
+  if (!box) return;
+  const vw = window.innerWidth || 1200;
+
+  const bs = getComputedStyle(box);
+  /* 纵向固定开销：说明 + 单页工具条 + 标注工具条 + 盒子上下内边距。
+   * 必须【实测】而不是写死常数 —— 工具条内容一变（例如新增色板行导致换行），
+   * 常数就会算小，舞台让不出空间，底部的按钮被挤出面板。 */
+  const hOf = sel => { const e = document.querySelector(sel); return e ? e.getBoundingClientRect().height : 0; };
+  const chromeH = Math.ceil(hOf('#preview .cap') + hOf('#preview .pv-tools') + hOf('#preview .pv-edit')
+                + (parseFloat(bs.paddingTop) || 0) + (parseFloat(bs.paddingBottom) || 0));
+  box.style.setProperty('--pvc', chromeH + 'px');      // 喂给 CSS 里 .stage 的高度上限
+
+  /* 两侧给翻页按钮留位：面板不占满视口，按钮才能稳稳落在面板之外（不会压到内容上）。
+   * 与 CSS 里 .pv-nav 的宽度 / positionPvNav 的 GAP 保持一致。 */
+  const navW = vw <= 1080 ? 44 : 56;
+  const navReserve = 2 * (navW + 14 + 10);
+
+  box.style.width = Math.max(320, Math.min(Math.round(vw * 0.78),
+                    Math.round(vw * 0.94), vw - navReserve)) + 'px';
+  positionPvNav();                     // 面板宽度定下来后才能算按钮的水平位置
+}
+
+/* 打开某页预览：先用缩略图占位，高清渲染完成后替换 */
+async function openPagePreview(page) {
+  const gIdx = state.pages.findIndex(p => p.uid === page.uid);
+  const caption = page.fileName + ' · 第 ' + page.srcNo + ' 页（全局第 ' + (gIdx + 1) + ' 页）· 点击空白关闭，滚轮缩放';
+  state.previewUid = page.uid;
+  syncPreviewTools(page);
+  const placeholder = page.displayThumb || (state.thumbCache[page.uid] && state.thumbCache[page.uid].url) || '';
+  openPreviewSrc(placeholder, placeholder ? '正在渲染高清预览…' : '');
+  lockPreviewWidth(page);              // 必须在 .show 之后测：display:none 时量到的宽度全是 0
+  syncOverlayCanvas();                 // 舞台宽度定下来后重算图片显示尺寸，保证 overlay 贴合
+  state.edit.sel = -1;                 // 换页：上一页的选中索引对新页没有意义
+  syncImgTools(page);                  // 「图片」工具仅图片页可见（内部可能把工具退回 select）
+  setTool(state.edit.tool || 'select'); // 同时补上 .editing，overlay 才能接收点击
+  updatePvNav();               // 翻页按钮的首/末页禁用态与显隐
+  updateEdNote();
+  // 上面两步会改变工具条内容/高度（切换工具会显隐颜色组、note 文案会换行），
+  // 必须按最终高度再算一次，否则舞台让不出空间、底部按钮会被挤出面板。
+  lockPreviewWidth(page);
+  let src = null, err = null;
+  try { src = await buildPreviewSrc(page); }
+  catch (e) { console.error('预览渲染失败:', e); err = e; }
+  if (state.previewUid !== page.uid) return;          // 期间已关闭或切到别的页
+  if (src) { $('pvImg').src = src; $('pvCap').textContent = caption; }
+  else if (placeholder) {
+    $('pvCap').textContent = caption + '（高清渲染失败，当前为缩略图）';
+    if (err) toast('⚠️ 预览高清渲染失败：' + (err.message || err), 4000);
+  } else { toast('预览渲染失败，请重试'); }
+}
+
+/* ---- 预览内左右翻页：不退出预览，直接切到上/下一页 ---- */
+function previewIndex() {
+  if (state.previewUid == null) return -1;
+  return state.pages.findIndex(p => p.uid === state.previewUid);
+}
+/* 「图片」相关按钮只在该页确实是图片时出现；切到非图片页时把工具退回「选择」 */
+function syncImgTools(page) {
+  const isImg = !!(page && page.kind === 'image');
+  ['tbImg', 'tbImgFit'].forEach(id => { const el = $(id); if (el) el.style.display = isImg ? '' : 'none'; });
+  if (!isImg && state.edit.tool === 'image') setTool('select');
+}
+/* 翻页按钮放在白色面板【外侧】的留白里：按 .box 的实际矩形算左右位置，
+ * 面板很宽（挤到视口边）时退回贴视口边缘，保证按钮始终可见、始终在面板之外可点。 */
+function positionPvNav() {
+  const box = document.querySelector('#preview .box');
+  const p = $('pvPrev'), n = $('pvNext');
+  if (!box || !p || !n) return;
+  if (!$('preview').classList.contains('show')) return;   // 没打开就别量，getBoundingClientRect 全是 0
+  const r = box.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const w = p.offsetWidth || 56;
+  const GAP = 14, EDGE = 10;
+  let pl = r.left - w - GAP;                     // 面板左侧留白里
+  if (pl < EDGE) pl = EDGE;
+  let nl = r.right + GAP;                        // 面板右侧留白里
+  if (nl + w > vw - EDGE) nl = vw - w - EDGE;
+  p.style.left = Math.round(pl) + 'px';
+  n.style.left = Math.round(nl) + 'px';
+}
+function updatePvNav() {
+  const p = $('pvPrev'), n = $('pvNext');
+  if (!p || !n) return;
+  const i = previewIndex(), last = state.pages.length - 1;
+  const show = state.pages.length > 1;          // 只有一页时不必占位置
+  p.style.display = show ? '' : 'none';
+  n.style.display = show ? '' : 'none';
+  p.disabled = i <= 0;
+  n.disabled = i < 0 || i >= last;
+  p.title = i <= 0 ? '已是第一页' : '上一页（←）';
+  n.title = i >= last ? '已是最后一页' : '下一页（→）';
+}
+function gotoPage(delta) {
+  const i = previewIndex();
+  if (i < 0) return;
+  const target = state.pages[i + delta];
+  if (!target) return;
+  hideTextEditor(true, true);   // 先收掉正在输入的文本框，否则内容会写进切页前的那一页
+  resetZoom();                  // 换页回到 100%，新页沿用上一页的缩放/位移会很怪
+  openPagePreview(target);
+  updatePvNav();
+}
+(function bindPvNav() {
+  $('pvPrev').addEventListener('click', e => { e.stopPropagation(); gotoPage(-1); });
+  $('pvNext').addEventListener('click', e => { e.stopPropagation(); gotoPage(1); });
+  /* 左右方向键翻页。焦点在输入控件里时不干预（否则会和缩放滑条抢方向键） */
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (!$('preview').classList.contains('show')) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    e.preventDefault();
+    gotoPage(e.key === 'ArrowLeft' ? -1 : 1);
+  });
+})();
+
+/* ---- 预览内的单页设置工具条 ---- */
+function currentPreviewPage() {
+  if (state.previewUid == null) return null;
+  return getPageByUid(state.previewUid) || null;
+}
+function syncPreviewTools(page) {
+  $('pvQualitySel').options[0].textContent = '跟随全局（' + readQuality().label + '）';
+  $('pvEnhanceSel').options[0].textContent = '跟随全局（' + (ENHANCE_TEXT[readImgSettings().enhance] || '不增强') + '）';
+  $('pvQualitySel').value = page.ovq || '';
+  $('pvEnhanceSel').value = page.ove || '';
+  const q = effQualityOf(page), enhNow = effEnhanceOf(page);
+  const bits = ['本页生效：' + q.label + ' · ' + (ENHANCE_TEXT[enhNow] || '不增强')];
+  const px = exportPixelsOf(page);
+  bits.push(px.vector ? '导出：矢量保真（文字可选中）'
+                      : '导出像素：' + px.w + '×' + px.h + '（' + px.dpi + ' DPI）');
+  if (page.kind === 'pdf' && (enhNow !== 'none' || !q.vector || pageNeedsRaster(page))) {
+    bits.push(overlayOn() ? '水印/页码已开启，该页将栅格化，导出后文字不可选中'
+      : (hasOps(page) ? '该页有标注，将栅格化，导出后文字不可选中' : '该页将栅格化，导出后文字不可选中'));
+  }
+  if (hasOverride(page)) bits.push('已单独设置，不影响其他页');
+  $('pvNote').textContent = bits.join(' ｜ ');
+}
+/* 单页设置改动后：刷新提示 + 重绘缩略图与预估 + 重渲染预览 */
+async function applyPreviewOverride(page) {
+  syncPreviewTools(page);
+  afterMutate();
+  if (state.previewUid !== page.uid) return;
+  const src = await buildPreviewSrc(page).catch(e => { console.error(e); return null; });
+  if (src && state.previewUid === page.uid) $('pvImg').src = src;
+}
+
+/* ---- 渲染：页面卡片 + 来源分组 ---- */
+function fileColor(fileId) {
+  const f = state.files.find(x => x.id === fileId);
+  return f ? f.color : '#c9d2e0';
+}
+function fileLabel(fileId) {
+  const f = state.files.find(x => x.id === fileId);
+  return f ? f.name : '';
+}
+/* ---- 导入骨架屏：先把待处理文件的灰格卡片摆出来，处理完再换成真缩略图 ----
+ * 目的：大文件处理耗时较久，给用户"已在处理"的即时反馈，避免以为拖拽失败而重复拖动。
+ */
+function removeSkeleton(key) {
+  const i = state.pending.findIndex(p => p.key === key);
+  if (i >= 0) state.pending.splice(i, 1);
+}
+function clearSkeletons() {
+  if (state.pending.length) state.pending = [];
+}
+
+/* 导入期渐进刷新：只重算新页面的缩略图，列表重绘限流，避免大文件导入时界面卡死 */
+function pushImportedPages(pages) {
+  if (!pages || !pages.length) return;
+  state.pages.push(...pages);
+  for (const p of pages) p.displayThumb = makeThumbFromOps(p);
+  scheduleRenderList();
+  updateFootBar();
+  updateEstimate();
+}
+
+/* 列表重绘限流：导入大文件时逐页刷新，避免 O(n²) 重建导致卡顿 */
+let _rlTimer = null, _rlLast = 0;
+function scheduleRenderList() {
+  const gap = 90;
+  const now = performance.now();
+  const wait = gap - (now - _rlLast);
+  if (wait <= 0) {
+    if (_rlTimer) { clearTimeout(_rlTimer); _rlTimer = null; }
+    _rlLast = now;
+    renderList();
+    return;
+  }
+  if (_rlTimer) return;
+  _rlTimer = setTimeout(() => { _rlTimer = null; _rlLast = performance.now(); renderList(); }, wait);
+}
+
+/* 缩略图缓存键：任一编辑操作或增强档位变化才需重算 */
+function thumbCacheKeyOf(p) {
+  return [p.kind, p.rot, p.hMirror ? 1 : 0, p.vMirror ? 1 : 0, effEnhanceOf(p)].join('|');
+}
+
+/* 骨架卡片：灰格 + 转圈 */
+function buildSkeletonCard(item) {
+  const div = document.createElement('div');
+  div.className = 'card skel';
+  div.setAttribute('aria-busy', 'true');
+  const thumb = document.createElement('div');
+  thumb.className = 'thumb';
+  const sp = document.createElement('div');
+  sp.className = 'spinner';
+  thumb.appendChild(sp);
+  div.appendChild(thumb);
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const r1 = document.createElement('div');
+  r1.className = 'row1';
+  const nm = document.createElement('div');
+  nm.className = 'name';
+  nm.textContent = item.label;
+  r1.appendChild(nm);
+  meta.appendChild(r1);
+  const r2 = document.createElement('div');
+  r2.className = 'row2';
+  const ln = document.createElement('div');
+  ln.className = 'sk-line';
+  r2.appendChild(ln);
+  const ln2 = document.createElement('div');
+  ln2.className = 'sk-line short';
+  r2.appendChild(ln2);
+  meta.appendChild(r2);
+  div.appendChild(meta);
+  return div;
+}
+
+function renderList() {
+  const box = $('list');
+  box.innerHTML = '';
+  if (!state.pages.length && !state.pending.length) {
+    box.innerHTML = '<div class="empty">导入 PDF 或图片后，页面会以缩略图卡片显示在这里</div>';
+    return;
+  }
+  // 所有页面统一布局，不显示分组分隔线
+  let gIdx = 0;
+  state.pages.forEach(page => {
+    gIdx++;
+    box.appendChild(buildCard(page, gIdx));
+  });
+  // 尾部追加导入中的骨架卡片
+  state.pending.forEach(it => box.appendChild(buildSkeletonCard(it)));
+}
+function buildCard(page, gIdx) {
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.draggable = true;
+  div.dataset.uid = page.uid;
+
+  const thumb = document.createElement('div');
+  thumb.className = 'thumb';
+  const badge = document.createElement('span');
+  badge.className = 'badge' + (page.err ? ' err' : '');
+  badge.textContent = page.err ? '错误' : String(gIdx);
+  thumb.appendChild(badge);
+  const dispThumb = page.displayThumb || (state.thumbCache[page.uid] && state.thumbCache[page.uid].url) || '';
+  if (dispThumb) {
+    const img = document.createElement('img');
+    img.src = dispThumb;
+    img.alt = '';
+    img.loading = 'lazy';
+    thumb.appendChild(img);
+  } else {
+    thumb.appendChild(document.createTextNode('…'));
+  }
+  div.appendChild(thumb);
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+
+  // Row 1: fileName (left) + page info (right)
+  const row1 = document.createElement('div');
+  row1.className = 'row1';
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = page.fileName;
+  name.title = page.fileName;
+  row1.appendChild(name);
+
+  const info = document.createElement('div');
+  info.className = 'info';
+  const f = state.files.find(x => x.id === page.fileId);
+  let fileSize = '';
+  if (f) {
+    if (page.kind === 'pdf') {
+      // PDF: 显示单页平均体积
+      const pageBytes = f.size / f.pageCount;
+      fileSize = fmtBytes(pageBytes);
+    } else {
+      // 图片: 显示整个文件体积（一张图片一页）
+      fileSize = fmtBytes(f.size);
+    }
+  }
+  // PDF pages show page number, image pages don't
+  if (page.kind === 'pdf') {
+    info.textContent = 'P' + page.srcNo + ' · ' + fileSize;
+  } else {
+    info.textContent = fileSize;
+  }
+  // 单页覆盖标记：有则显示，点击恢复跟随全局
+  if (hasOverride(page)) {
+    const tag = document.createElement('span');
+    tag.className = 'ovtag';
+    tag.textContent = '单页';
+    tag.title = '已单独设置：' + overrideText(page) + '（点击恢复跟随全局）';
+    tag.addEventListener('click', e => {
+      e.stopPropagation();
+      pushHistory();
+      page.ovq = null; page.ove = null;
+      afterMutate();
+      if (state.previewUid === page.uid) syncPreviewTools(page);
+      toast('已恢复跟随全局设置');
+    });
+    row1.appendChild(tag);
+  }
+  row1.appendChild(info);
+  meta.appendChild(row1);
+
+  // Row 2: action buttons (right-aligned)
+  const row2 = document.createElement('div');
+  row2.className = 'row2';
+
+  const rotBtn = document.createElement('button');
+  rotBtn.type = 'button';
+  rotBtn.textContent = '旋转';
+  rotBtn.title = '顺时针旋转 90°';
+  rotBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    pushHistory();
+    page.rot = (page.rot + 90) % 360;
+    afterMutate();
+  });
+  row2.appendChild(rotBtn);
+
+  const mirrorBtn = document.createElement('button');
+  mirrorBtn.type = 'button';
+  mirrorBtn.textContent = '镜像';
+  mirrorBtn.title = '水平镜像';
+  mirrorBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    pushHistory();
+    // 根据旋转角度决定镜像方向，确保视觉上总是水平翻转
+    // 0度或180度：水平镜像
+    // 90度或270度：垂直镜像（因为上下变成了左右）
+    if (page.rot === 0 || page.rot === 180) {
+      page.hMirror = !page.hMirror;
+    } else { // 90 or 270
+      page.vMirror = !page.vMirror;
+    }
+    afterMutate();
+  });
+  row2.appendChild(mirrorBtn);
+
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'danger';
+  delBtn.textContent = '删除';
+  delBtn.title = '删除此页';
+  delBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    pushHistory();
+    state.pages = state.pages.filter(p => p.uid !== page.uid);
+    delete state.thumbCache[page.uid];
+    // Remove file if no pages left
+    const usedFileIds = new Set(state.pages.map(p => p.fileId));
+    state.files = state.files.filter(f => usedFileIds.has(f.id));
+    afterMutate();
+    toast('已删除 1 页');
+  });
+  row2.appendChild(delBtn);
+
+  meta.appendChild(row2);
+  div.appendChild(meta);
+  return div;
+}
+
+/* ============ 预览放大（缩略图/渲染模块将调用） ============ */
+function openPreviewSrc(src, caption) {
+  hideTextEditor(true);
+  const img = $('pvImg');
+  if (!img.onload) img.onload = () => { syncOverlayCanvas(); };   // 图片尺寸确定后才能同步 overlay
+  img.src = src;
+  $('pvMapImg').src = src;                 // 导航缩略图复用同一张图
+  $('pvCap').textContent = caption || '';
+  $('preview').classList.add('show');
+  $('zoomHint').classList.add('show');
+  setTimeout(() => $('zoomHint').classList.remove('show'), 2000);
+  resetZoom();
+}
+function closePreview() {
+  hideTextEditor(true, true);          // 关闭预览时不要再触发工具切换
+  $('preview').classList.remove('show');
+  state.previewUid = null;
+  state.edit.tool = 'select'; state.edit.sel = -1;
+  $('pvSheet').classList.remove('editing', 'drawing');
+  edPropDirty = false; edImgDirty = false;
+  clearImgLive();
+  resetZoom();
+}
+
+/* =====================================================================
+ * 预览内的单页标注编辑（马赛克 / 区域高亮 / 文本框）
+ * 预览图本身已经是「渲染 + 叠加」后的结果，overlay 只画交互反馈：
+ *   · 绘制中的临时选框（虚线 + 半透明填充）
+ *   · 选中标注的边框
+ * 提交后才走 buildPreviewSrc 重渲染，保证屏幕所见与导出一致。
+ * ===================================================================== */
+const TOOL_BTN = { select: 'tbSel', mosaic: 'tbMos', brush: 'tbBr', highlight: 'tbHl', text: 'tbTxt', image: 'tbImg' };
+/* 会「按住左键在页面上画」的工具（决定十字光标）：拖出矩形 + 自由画线都算 */
+const DRAW_TOOLS = { mosaic: 1, brush: 1, highlight: 1, text: 1 };
+const clamp01 = v => (v < 0 ? 0 : (v > 1 ? 1 : v));
+let edDrag = null;
+
+function edCanvas() { return $('pvOverlay'); }
+/* 按舞台尺寸显式算出图片的显示尺寸并写死 —— sheet 随之确定，overlay 才能精确贴合图片 */
+function layoutSheet() {
+  const img = $('pvImg');
+  if (!img || !img.naturalWidth || !img.naturalHeight) return false;
+  const stage = document.querySelector('#preview .stage');
+  if (!stage) return false;
+  const sw = stage.clientWidth, shg = stage.clientHeight;
+  if (!sw || !shg) return false;
+  const s = Math.min(sw / img.naturalWidth, shg / img.naturalHeight);
+  const w = Math.max(1, Math.round(img.naturalWidth * s));
+  const h = Math.max(1, Math.round(img.naturalHeight * s));
+  /* 纯 contain：长边贴边，横版页照样铺满舞台高度。
+   * 曾试过「以舞台高度为宽度上限」把横竖版显示面积拉齐，结果把横版 A4 初始尺寸压小了 ——
+   * 用户要的是「横向 A4 保持原样」，横竖版显示面积本来就该不同。面板宽度是否一致改由
+   * lockPreviewWidth() 保证（那里只跟视口有关，与页面横竖版无关）。 */
+  if (img.style.width !== w + 'px' || img.style.height !== h + 'px') {
+    img.style.width = w + 'px';
+    img.style.height = h + 'px';
+  }
+  return true;
+}
+function syncOverlayCanvas() {
+  layoutSheet();
+  const sh = $('pvSheet'), cv = edCanvas();
+  const w = sh.offsetWidth, h = sh.offsetHeight;
+  if (!w || !h) return;
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  drawOverlayLayer();
+  positionTextEditor();
+}
+/* 指针 → 版面归一化坐标（rect 已含缩放/平移变换） */
+function edPoint(e) {
+  const r = edCanvas().getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+}
+function hitOp(ops, p) {
+  for (let i = ops.length - 1; i >= 0; i--) {
+    const o = ops[i];
+    if (o.t === 'br') { if (hitBrush(o, p)) return i; continue; }
+    if (p.x >= o.x && p.x <= o.x + o.w && p.y >= o.y && p.y <= o.y + o.h) return i;
+  }
+  return -1;
+}
+/* ---- 选中后的 8 个控制点：四角缩放、四边单向拉伸 ----
+ * 命名含方位字母，resizeRect 直接按字母判断要动哪条边，无需分支表。 */
+function handlePoints(o) {
+  const x0 = o.x, y0 = o.y, x1 = o.x + o.w, y1 = o.y + o.h;
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  return [['nw', x0, y0], ['n', mx, y0], ['ne', x1, y0], ['e', x1, my],
+          ['se', x1, y1], ['s', mx, y1], ['sw', x0, y1], ['w', x0, my]];
+}
+const HANDLE_CUR = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize',
+                     n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
+/* 命中控制点则返回方位名，否则 null。容差按像素给（约 7px），缩放后仍好用。
+ * ⚠️ 画笔笔迹**不参与缩放**：用户明确要求选中笔迹后只能删除、撤销/重做、改颜色、拖动，
+ * 不能改粗细也不能拉边框。所以这里对它恒返回 null —— 按下时就会落到 hitOp 走「移动」，
+ * resize 分支与 scaleBrush 也因此一并删掉了（不留死代码、不留口子）。 */
+function hitHandle(o, p, W, H) {
+  if (!W || !H || !o || o.t === 'br') return null;
+  const tx = 7 / W, ty = 7 / H;
+  const hs = handlePoints(o);
+  for (let i = 0; i < hs.length; i++) {
+    if (Math.abs(p.x - hs[i][1]) <= tx && Math.abs(p.y - hs[i][2]) <= ty) return hs[i][0];
+  }
+  return null;
+}
+/* 按方位拖动控制点得到新矩形：以对边/对角为锚点，跟随指针，并保证最小尺寸 */
+function resizeRect(r0, h, p) {
+  const MINW = 0.006, MINH = 0.005;
+  let x = r0.x, y = r0.y, x1 = r0.x + r0.w, y1 = r0.y + r0.h;
+  if (h.indexOf('w') >= 0) x = Math.min(p.x, x1 - MINW);
+  if (h.indexOf('e') >= 0) x1 = Math.max(p.x, x + MINW);
+  if (h.indexOf('n') >= 0) y = Math.min(p.y, y1 - MINH);
+  if (h.indexOf('s') >= 0) y1 = Math.max(p.y, y + MINH);
+  x = clamp01(x); y = clamp01(y); x1 = clamp01(x1); y1 = clamp01(y1);
+  return { x: Math.min(x, x1), y: Math.min(y, y1), w: Math.max(MINW, x1 - x), h: Math.max(MINH, y1 - y) };
+}
+function setTool(t) {
+  if (!TOOL_BTN[t]) return;
+  state.edit.tool = t;
+  // 切到绘制类工具会清空选中（绘制与选中态互斥）；切回 select 保留选中，
+  // 这样「画完自动回到选择」时能直接接着微调刚画的那一个。
+  if (t !== 'select') state.edit.sel = -1;
+  hideTextEditor(true, true);          // 正在切工具，别让收尾逻辑再反切回 select
+  Object.keys(TOOL_BTN).forEach(k => $(TOOL_BTN[k]).classList.toggle('on', k === t));
+  const sh = $('pvSheet');
+  sh.classList.add('editing');                     // overlay 全程可点，select 也要能选中
+  sh.classList.toggle('drawing', !!DRAW_TOOLS[t]); // 十字光标只给「拖出矩形」类的工具
+  if (t === 'highlight' || t === 'text' || t === 'brush') { $('edColor').value = colorOf(t); markSwatchOn($('edColor')); }
+  edPropDirty = false;
+  edImgDirty = false;
+  // 只有「图片」工具需要预渲染图片内容 canvas（拖拽/拖滑条的实时预览要复用它）。
+  // 这一步含旋转与白底增强，放到下一帧做，避免卡住工具按钮的反馈。
+  if (t === 'image') { const pv = currentPreviewPage(); setTimeout(() => primeImgLive(pv), 0); }
+  else clearImgLive();
+  syncSelProps();
+  syncOverlayCanvas();
+  updateEdNote();
+}
+/* 当前选中的标注（无则 null） */
+function selOp() {
+  const page = currentPreviewPage();
+  if (!page) return null;
+  const ops = pageOps(page);
+  return (state.edit.sel >= 0 && state.edit.sel < ops.length) ? ops[state.edit.sel] : null;
+}
+/* 把「颜色/大小」控件的改动应用到选中项。
+ * 连续 input（拖滑条、取色器）只推一次历史快照，否则撤销栈会被刷爆。 */
+let edPropDirty = false;
+let edImgDirty = false;
+let edRefTimer = 0;
+function scheduleRefresh(page) {
+  clearTimeout(edRefTimer);
+  edRefTimer = setTimeout(() => refreshPreviewOps(page), 150);
+}
+function applyPropToSel(mut) {
+  const page = currentPreviewPage();
+  if (!page) return false;
+  const op = selOp();
+  if (!op) return false;
+  const before = JSON.stringify(op);
+  const prev = JSON.parse(before);          // 改动前的副本
+  mut(op);
+  if (JSON.stringify(op) === before) return false;
+  if (!edPropDirty) {
+    // 快照必须在改动【之前】推，否则历史里存的是改后的值，撤销等于没撤。
+    // 这里临时还原 → 推快照 → 再写回，兼顾「连续拖动只算一次撤销步骤」。
+    const next = JSON.parse(JSON.stringify(op));
+    Object.assign(op, prev); pushHistory(); Object.assign(op, next);
+    edPropDirty = true;
+  }
+  afterMutate();
+  scheduleRefresh(page);
+  return true;
+}
+/* 选中项变化时，把颜色/大小控件同步成该标注的当前值（没有选中就回落到工具默认值） */
+function syncSelProps() {
+  const cEl = $('edColor'), sEl = $('edSize'), lb = $('edSizeV'), del = $('tbDel');
+  if (!cEl || !sEl) return;
+  const op = selOp();
+  if (del) del.disabled = !op;
+  // 马赛克取的是原图区域、没有颜色概念；调图片时颜色同样无意义 → 整组隐藏（含色板）
+  const noColor = op ? (op.t === 'mos') : (state.edit.tool === 'mosaic' || state.edit.tool === 'image');
+  const cw = $('edColorWrap');
+  if (cw) cw.style.display = noColor ? 'none' : '';
+  /* 选中画笔笔迹时隐藏「大小」：笔迹粗细画的时候就定死了，事后不改
+   * （改粗细 = 重画，容易把原本的笔触拉变形）。想改粗细就重画一笔，
+   * 「画笔」工具本身的大小滑条照旧可用 —— 它决定的是下一笔的粗细。 */
+  const noSize = !!op && op.t === 'br';
+  const sw = $('edSizeWrap');
+  if (sw) sw.style.display = noSize ? 'none' : '';
+  if (!op) {
+    cEl.disabled = noColor;
+    syncEdSizeUI();
+    return;
+  }
+  if (op.t === 'hl' || op.t === 'tx' || op.t === 'br') {
+    cEl.disabled = false;
+    cEl.value = op.c || (op.t === 'hl' ? '#ffd400' : (op.t === 'br' ? '#e03131' : '#1f2733'));
+    markSwatchOn(cEl);
+  }
+  else cEl.disabled = true;
+  if (op.t === 'tx') {
+    sEl.disabled = false; sEl.min = 6; sEl.max = 60;
+    sEl.value = op.s || 12; lb.textContent = (op.s || 12) + 'pt';
+  } else if (op.t === 'mos') {
+    sEl.disabled = false; sEl.min = 1; sEl.max = 40;
+    const b = Math.max(1, Math.round((op.b || 0.008) * 1000));
+    sEl.value = b; lb.textContent = String(b);
+  } else { sEl.disabled = true; lb.textContent = '—'; }   // 高亮 / 画笔笔迹：都没有「大小」可改（画笔整组已隐藏，这里只是兜底不回填）
+}
+function updateEdNote() {
+  const n = $('edNote');
+  if (!n) return;
+  const page = currentPreviewPage();
+  const cnt = page ? pageOps(page).length : 0;
+  const tips = {
+    select: '点选标注后可拖动移动、拖四角/四边的控制点调整边框；文本框双击可改文字；Delete 删除选中。',
+    mosaic: '按住左键拖出矩形，松手即打上马赛克（不可逆融合到画面里）。',
+    brush: '按住左键自由涂画，松手成笔；粗细在下笔前调好，画完可再选中改颜色或拖动（粗细不可改）。',
+    highlight: '按住左键拖出矩形，荧光笔效果（底下文字仍可见）。',
+    text: '拖出文本框后直接输入内容，点击别处完成。',
+    image: '按住图片拖动可调整它在页面中的位置，用「缩放」滑条调整大小，点「适应页面」恢复默认。'
+  };
+  if (state.edit.tool === 'image') {
+    const adj = page ? imgAdjOf(page) : null;
+    const z = Math.round(((adj && adj.s) || 1) * 100);
+    n.textContent = tips.image + ' 当前缩放 ' + z + '%。';
+    return;
+  }
+  n.textContent = tips[state.edit.tool] + ' 本页共 ' + cnt + ' 处标注。';
+}
+function syncEdSizeUI() {
+  const sl = $('edSize'), lb = $('edSizeV');
+  const t = state.edit.tool;
+  const wrap = $('edSizeWrap');
+  if (wrap && wrap.firstChild) wrap.firstChild.nodeValue = t === 'image' ? '缩放 ' : '大小 ';
+  if (t === 'image') {
+    const page = currentPreviewPage();
+    const z = Math.round(((page && imgAdjOf(page) && imgAdjOf(page).s) || 1) * 100);
+    sl.min = 10; sl.max = 400; sl.value = z; lb.textContent = z + '%';
+  }   else if (t === 'mosaic') { sl.min = 1; sl.max = 40; sl.value = state.edit.mosB; lb.textContent = state.edit.mosB; }
+  else if (t === 'brush') { sl.min = 1; sl.max = 60; sl.value = state.edit.brW; lb.textContent = state.edit.brW; }
+  else if (t === 'text') { sl.min = 6; sl.max = 60; sl.value = state.edit.txtS; lb.textContent = state.edit.txtS + 'pt'; }
+  else { lb.textContent = '—'; sl.disabled = true; return; }
+  sl.disabled = false;
+}
+/* 重渲染预览图（含全部叠加层） */
+async function refreshPreviewOps(page) {
+  if (state.previewUid !== page.uid) return;
+  const src = await buildPreviewSrc(page).catch(err => { console.error(err); return null; });
+  if (src && state.previewUid === page.uid) {
+    $('pvImg').src = src;
+    $('pvMapImg').src = src;
+  }
+  syncOverlayCanvas();
+}
+function drawOverlayLayer() {
+  const cv = edCanvas();
+  if (!cv.width || !cv.height) return;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const page = currentPreviewPage();
+  if (!page) return;
+  const W = cv.width, H = cv.height;
+  const ops = pageOps(page);
+  const sel = state.edit.sel;
+  if (sel >= 0 && sel < ops.length) {
+    const o = ops[sel];
+    ctx.save();
+    ctx.strokeStyle = '#2f6fed'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.strokeRect(o.x * W, o.y * H, o.w * W, o.h * H);
+    ctx.setLineDash([]);
+    /* 8 个白底蓝框控制点：拖四角等比缩放，拖四边单向拉伸。
+     * 画笔笔迹不给控制点（只留虚线框表示「已选中」）—— 它不支持缩放，画了控制点就是误导。 */
+    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#2f6fed'; ctx.lineWidth = 1.5;
+    if (o.t !== 'br') handlePoints(o).forEach(hp => {
+      const hx = hp[1] * W, hy = hp[2] * H;
+      ctx.beginPath();
+      ctx.rect(hx - 3.5, hy - 3.5, 7, 7);
+      ctx.fill();
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+  /* 画笔：正在画的这一笔直接实时画在 overlay 上。
+   * 走的是成品同一条 drawBrushOp，所以「松手前看到的」和「松手后落下去的」必然一致。 */
+  if (edDrag && edDrag.mode === 'brush') {
+    drawBrushOp(ctx, { t: 'br', c: colorOf('brush'), lw: Math.max(0.0005, state.edit.brW / 1000), pts: edDrag.pts }, W, H);
+  }
+  if (edDrag && edDrag.mode === 'draw') {
+    const x = Math.min(edDrag.x0, edDrag.x1) * W, y = Math.min(edDrag.y0, edDrag.y1) * H;
+    const w = Math.abs(edDrag.x1 - edDrag.x0) * W, h = Math.abs(edDrag.y1 - edDrag.y0) * H;
+    ctx.save();
+    ctx.fillStyle = 'rgba(47,111,237,.12)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#2f6fed'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+}
+function makeOpFromRect(tool, r) {
+  const base = { x: r.x, y: r.y, w: r.w, h: r.h };
+  if (tool === 'mosaic') return Object.assign(base, { t: 'mos', b: Math.max(0.002, state.edit.mosB / 1000) });
+  if (tool === 'highlight') return Object.assign(base, { t: 'hl', c: colorOf('highlight'), a: 0.4 });
+  return Object.assign(base, { t: 'tx', text: '', s: state.edit.txtS, c: colorOf('text'), al: 'left', b: false });
+}
+/* 高亮用荧光黄、正文用深墨色 —— 两个工具各自记住自己的颜色 */
+function colorOf(tool) { return state.edit.colors[tool] || '#ffd400'; }
+/* ---- 文本框就地编辑浮层 ---- */
+let edTextOp = null;
+function positionTextEditor() {
+  const ed = $('pvEditor');
+  if (!edTextOp || $('pvEditor').style.display !== 'block') return;
+  const page = currentPreviewPage();
+  if (!page) return;
+  const o = edTextOp, sh = $('pvSheet');
+  ed.style.left = (o.x * 100) + '%';
+  ed.style.top = (o.y * 100) + '%';
+  ed.style.width = (o.w * 100) + '%';
+  ed.style.height = (o.h * 100) + '%';
+  const ptH = pagePtSize(page).h;
+  const fs = Math.max(6, o.s * (sh.offsetHeight / Math.max(ptH, 1e-6)));
+  const ta = $('pvEditorTa');
+  ta.style.fontSize = fs + 'px';
+  ta.style.lineHeight = '1.35';
+  ta.style.color = o.c || '#1f2733';
+}
+function openTextEditor(page, op) {
+  edTextOp = op;
+  const ed = $('pvEditor'), ta = $('pvEditorTa');
+  ed.style.display = 'block';
+  ta.value = op.text || '';
+  positionTextEditor();
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+/* keep: 是否把当前内容写回 op；noSwitch: 调用方自己要切工具时传 true，
+ * 避免这里再反切回「选择」把用户刚点的工具覆盖掉（setTool → hideTextEditor 的递归）。 */
+function hideTextEditor(keep, noSwitch) {
+  const ed = $('pvEditor');
+  if (ed.style.display !== 'block') { edTextOp = null; return; }
+  const op = edTextOp, page = currentPreviewPage();
+  ed.style.display = 'none';
+  edTextOp = null;
+  if (!keep || !op || !page) return;
+  const v = $('pvEditorTa').value;
+  if (!v.trim()) {
+    const i = pageOps(page).indexOf(op);
+    if (i >= 0) { pushHistory(); page.ops.splice(i, 1); afterMutate(); }
+    state.edit.sel = -1;
+  } else {
+    if (v !== (op.text || '')) { pushHistory(); op.text = v; afterMutate(); }
+    state.edit.sel = pageOps(page).indexOf(op);
+  }
+  // 输入收尾后回到「选择」并选中该文本框，方便接着调边框 / 改颜色 / 再双击改字
+  if (!noSwitch && state.edit.tool !== 'select') setTool('select');
+  edPropDirty = false;
+  syncSelProps();
+  refreshPreviewOps(page);
+  updateEdNote();
+}
+
+/* ---- 编辑层事件 ---- */
+(function bindEditLayer() {
+  const cv = edCanvas();
+  cv.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    hideTextEditor(true);
+    const page = currentPreviewPage();
+    if (!page) return;
+    const p = edPoint(e);
+    if (!p) return;
+    const tool = state.edit.tool;
+    if (tool === 'select') {
+      const ops = pageOps(page);
+      const cv = edCanvas();
+      let i = state.edit.sel;
+      // 先看是否抓在「已选中」标注的控制点上，再退回整体命中
+      let hk = (i >= 0 && i < ops.length) ? hitHandle(ops[i], p, cv.width, cv.height) : null;
+      if (!hk) i = hitOp(ops, p);
+      state.edit.sel = i;
+      if (i < 0) {
+        // 点空白：取消选中，且不拦截事件，交给 sheet 做平移
+        edPropDirty = false;
+        drawOverlayLayer(); syncSelProps();
+        return;
+      }
+      e.preventDefault(); e.stopPropagation();       // 命中后不让 sheet 触发平移
+      edPropDirty = false;
+      if (hk) {
+        const o = ops[i];
+        edDrag = { mode: 'resize', i: i, h: hk, r0: { x: o.x, y: o.y, w: o.w, h: o.h }, moved: false };
+      } else {
+        /* 画笔的起点要单独记：移动是按「起点 → 当前指针」的位移平移所有点，
+         * 若改成按当前 op.x 递推，每帧的位移会累积漂移，笔画越拖越偏。 */
+        edDrag = { mode: 'move', i: i, ox: p.x - ops[i].x, oy: p.y - ops[i].y, moved: false,
+                   sx: p.x, sy: p.y, bx0: ops[i].x, by0: ops[i].y, bw0: ops[i].w, bh0: ops[i].h,
+                   pts0: ops[i].t === 'br' ? JSON.parse(JSON.stringify(ops[i].pts)) : null };
+      }
+      drawOverlayLayer(); syncSelProps();
+      return;
+    }
+    if (tool === 'image') {
+      if (page.kind !== 'image') return;
+      e.preventDefault(); e.stopPropagation();       // 不让 sheet 触发平移
+      edImgDirty = false;
+      primeImgLive(page);                    // 缓存没就绪（或已过期）就同步补一次
+      const adj = ensureImgAdj(page);
+      edDrag = { mode: 'imgmove', sx: p.x, sy: p.y, dx0: adj.dx, dy0: adj.dy, moved: false };
+      liveImgPreview(page);
+      return;
+    }
+    if (tool === 'brush') {
+      e.preventDefault(); e.stopPropagation();
+      edDrag = { mode: 'brush', pts: [[clamp01(p.x), clamp01(p.y)]] };
+      drawOverlayLayer();
+      return;
+    }
+    e.preventDefault(); e.stopPropagation();
+    edDrag = { mode: 'draw', x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!edDrag) return;
+    const page = currentPreviewPage();
+    if (!page) return;
+    const p = edPoint(e);
+    if (!p) return;
+    if (edDrag.mode === 'brush') {
+      /* 采样节流：mousemove 一秒能来上百次，全存下来会让撤销快照和导出数据白白膨胀，
+       * 而视觉上根本没有区别。0.002（约页宽的千分之二）以内的抖动直接丢掉。 */
+      const last = edDrag.pts[edDrag.pts.length - 1];
+      if (Math.hypot(p.x - last[0], p.y - last[1]) < 0.002) return;
+      edDrag.pts.push([clamp01(p.x), clamp01(p.y)]);
+      drawOverlayLayer();
+    } else if (edDrag.mode === 'draw') {
+      edDrag.x1 = clamp01(p.x); edDrag.y1 = clamp01(p.y);
+      drawOverlayLayer();
+    } else if (edDrag.mode === 'imgmove') {
+      const page2 = currentPreviewPage();
+      if (!page2 || page2.kind !== 'image') return;
+      if (!edDrag.moved) { edDrag.moved = true; pushHistory(); edImgDirty = true; }
+      const adj = ensureImgAdj(page2);
+      adj.dx = edDrag.dx0 + (p.x - edDrag.sx);
+      adj.dy = edDrag.dy0 + (p.y - edDrag.sy);
+      clampImgAdj(page2);
+      // 低分实时预览（复用内容 canvas）；缓存没准备好时退回只画外框，不至于卡死
+      if (!liveImgPreview(page2)) drawOverlayLayer();
+      drawOverlayLayer();
+    } else if (edDrag.mode === 'resize') {
+      const op = pageOps(page)[edDrag.i];
+      if (!op) return;
+      if (!edDrag.moved) { edDrag.moved = true; pushHistory(); }
+      /* 画笔笔迹走不到这里：hitHandle 对它恒返回 null，按下只会落到「移动」。
+       * 所以这里没有 br 分支 —— 留着就是一条随时能被误打开的缩放口子。 */
+      const r = resizeRect(edDrag.r0, edDrag.h, p);
+      op.x = r.x; op.y = r.y; op.w = r.w; op.h = r.h;
+      if (edTextOp === op) positionTextEditor();     // 正在输入时跟着框走
+      drawOverlayLayer();
+    } else {
+      const ops = pageOps(page);
+      const op = ops[edDrag.i];
+      if (!op) return;
+      if (!edDrag.moved) { edDrag.moved = true; pushHistory(); }
+      if (op.t === 'br' && edDrag.pts0) {
+        /* 整体平移（不是逐点递推）：先按起始包围盒夹住位移，保证笔画不会半截出界 */
+        const dx = Math.max(-edDrag.bx0, Math.min(1 - edDrag.bx0 - edDrag.bw0, p.x - edDrag.sx));
+        const dy = Math.max(-edDrag.by0, Math.min(1 - edDrag.by0 - edDrag.bh0, p.y - edDrag.sy));
+        op.pts = edDrag.pts0.map(pt => [pt[0] + dx, pt[1] + dy]);
+        updateBrushBounds(op);
+      } else {
+        op.x = Math.max(0, Math.min(1 - op.w, p.x - edDrag.ox));
+        op.y = Math.max(0, Math.min(1 - op.h, p.y - edDrag.oy));
+      }
+      drawOverlayLayer();
+    }
+  });
+
+  /* 「选择」工具下的光标反馈：控制点 → 缩放箭头，标注内 → 移动，其余不干预（交给平移/缩放） */
+  cv.addEventListener('mousemove', e => {
+    if (edDrag) return;
+    if (state.edit.tool === 'image') {          // 调整图片：整页都可拖
+      if (cv.style.cursor !== 'move') cv.style.cursor = 'move';
+      return;
+    }
+    if (state.edit.tool !== 'select') return;
+    const page = currentPreviewPage();
+    if (!page) return;
+    const p = edPoint(e);
+    if (!p) return;
+    const ops = pageOps(page);
+    let cur = '';
+    const cur0 = selOp();
+    if (cur0) {
+      const hk = hitHandle(cur0, p, cv.width, cv.height);
+      if (hk) cur = HANDLE_CUR[hk] || 'pointer';
+    }
+    if (!cur) cur = hitOp(ops, p) >= 0 ? 'move' : '';
+    if (cv.style.cursor !== cur) cv.style.cursor = cur;
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!edDrag) return;
+    const d = edDrag; edDrag = null;
+    const page = currentPreviewPage();
+    if (!page) return;
+    if (d.mode === 'brush') {
+      // 只是点了一下（没有第二点）就不留孤立的圆点 —— 否则随手一点就多一个红疙瘩
+      if (d.pts.length < 2) { drawOverlayLayer(); return; }
+      pushHistory();
+      const op = { t: 'br', c: colorOf('brush'), lw: Math.max(0.0005, state.edit.brW / 1000), pts: d.pts };
+      updateBrushBounds(op);
+      (page.ops = page.ops || []).push(op);
+      afterMutate();
+      setTool('select');                    // 画完回到「选择」并选中刚画的那笔
+      state.edit.sel = page.ops.length - 1;
+      syncSelProps();
+      refreshPreviewOps(page);
+      updateEdNote();
+      drawOverlayLayer();
+      return;
+    }
+    if (d.mode === 'draw') {
+      const w = Math.abs(d.x1 - d.x0), h = Math.abs(d.y1 - d.y0);
+      if (w < 0.008 || h < 0.006) { drawOverlayLayer(); return; }
+      const r = { x: Math.min(d.x0, d.x1), y: Math.min(d.y0, d.y1), w: w, h: h };
+      const tool = state.edit.tool;
+      pushHistory();
+      const op = makeOpFromRect(tool, r);
+      (page.ops = page.ops || []).push(op);
+      afterMutate();
+      const idx = page.ops.length - 1;
+      if (tool === 'text') {
+        // 文本框要先输入内容，工具暂不切回（hideTextEditor 收尾时再切）
+        state.edit.sel = idx;
+        openTextEditor(page, op);
+      } else {
+        // 画完自动回到「选择」并选中刚画的那一个，方便立刻拖位置 / 调边框
+        setTool('select');
+        state.edit.sel = idx;
+        syncSelProps();
+      }
+      refreshPreviewOps(page);
+      updateEdNote();
+    } else if (d.moved) {
+      afterMutate();
+      refreshPreviewOps(page);
+      updateEdNote();                       // 图片缩放百分比要跟着刷新
+    }
+    drawOverlayLayer();
+  });
+
+  // 工具按钮
+  Object.keys(TOOL_BTN).forEach(tool => {
+    $(TOOL_BTN[tool]).addEventListener('click', () => setTool(tool));
+  });
+  $('edColor').addEventListener('input', e => {
+    const t = state.edit.tool;
+    if (t === 'highlight' || t === 'text' || t === 'brush') state.edit.colors[t] = e.target.value;   // 工具记忆照旧
+    applyPropToSel(op => { if (op.t === 'hl' || op.t === 'tx' || op.t === 'br') op.c = e.target.value; });
+  });
+  $('edSize').addEventListener('input', e => {
+    const t = state.edit.tool, v = +e.target.value;
+    if (t === 'image') {                       // 图片缩放：10% ~ 400%（相对「适应页面」）
+      const page = currentPreviewPage();
+      if (!page || page.kind !== 'image') return;
+      if (!edImgDirty) { pushHistory(); edImgDirty = true; }
+      const adj = ensureImgAdj(page);
+      adj.s = Math.max(0.1, Math.min(4, v / 100));
+      clampImgAdj(page);
+      liveImgPreview(page);                    // 低分实时
+      scheduleRefresh(page);                   // 高分防抖补一帧
+      $('edSizeV').textContent = Math.round(adj.s * 100) + '%';
+      updateEdNote();
+      return;
+    }
+    if (t === 'mosaic') state.edit.mosB = v;
+    else if (t === 'brush') state.edit.brW = v;
+    else if (t === 'text') state.edit.txtS = v;
+    const op0 = selOp();
+    const applied = applyPropToSel(o => {
+      /* 这里故意【没有】br 分支：笔迹粗细画完就定死，事后不改。
+       * 「大小」组在选中笔迹时已经隐藏，这里再不留口子，
+       * 避免将来有人在别处派发 input 事件把粗细改掉。 */
+      if (o.t === 'mos') o.b = Math.max(0.002, v / 1000);
+      else if (o.t === 'tx') o.s = v;
+    });
+    const isPt = applied ? (op0 && op0.t === 'tx') : (t === 'text');
+    $('edSizeV').textContent = isPt ? (v + 'pt') : String(v);
+  });
+  $('tbDel').addEventListener('click', () => {
+    const page = currentPreviewPage();
+    if (!page) return;
+    const i = state.edit.sel;
+    if (i < 0 || i >= pageOps(page).length) { toast('请先选中一个标注'); return; }
+    pushHistory();
+    page.ops.splice(i, 1);
+    state.edit.sel = -1;
+    edPropDirty = false;
+    afterMutate(); refreshPreviewOps(page); updateEdNote(); syncSelProps();
+    toast('已删除该标注');
+  });
+  /* 图片：一键回到「适应页面」（清除手动缩放与位移） */
+  $('tbImgFit').addEventListener('click', () => {
+    const page = currentPreviewPage();
+    if (!page || page.kind !== 'image') return;
+    if (!page.imgAdj) { toast('当前已经是适应页面的状态'); return; }
+    pushHistory();
+    resetImgAdj(page);
+    edImgDirty = false;
+    afterMutate(); refreshPreviewOps(page); updateEdNote(); syncEdSizeUI();
+    toast('已恢复「适应页面」');
+  });
+  $('tbUndo').addEventListener('click', doUndo);
+  $('tbRedo').addEventListener('click', doRedo);
+
+  // 双击文本框：重新进入就地编辑（改文字）
+  cv.addEventListener('dblclick', e => {
+    const page = currentPreviewPage();
+    if (!page || state.edit.tool !== 'select') return;
+    const p = edPoint(e);
+    if (!p) return;
+    const ops = pageOps(page);
+    const i = hitOp(ops, p);
+    if (i < 0) return;
+    state.edit.sel = i;
+    const op = ops[i];
+    if (op.t !== 'tx') return;
+    e.preventDefault(); e.stopPropagation();
+    openTextEditor(page, op);
+    syncSelProps();
+  });
+
+  // 文本框就地输入
+  $('pvEditorTa').addEventListener('blur', () => hideTextEditor(true));
+  $('pvEditorTa').addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.stopPropagation(); hideTextEditor(true); }
+    else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); hideTextEditor(true); }
+  });
+
+  // Delete 删除选中
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    if (!$('preview').classList.contains('show')) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '')) return;
+    const page = currentPreviewPage();
+    if (!page || state.edit.sel < 0) return;
+    e.preventDefault();
+    pushHistory();
+    page.ops.splice(state.edit.sel, 1);
+    state.edit.sel = -1;
+    edPropDirty = false;
+    afterMutate(); refreshPreviewOps(page); updateEdNote(); syncSelProps();
+    toast('已删除该标注');
+  });
+})();
+
+/* =====================================================================
+ * 预览：缩放 / 平移 / 侧边滑条 / 导航缩略图
+ * 几何模型（transform: scale(s) translate(tx,ty)，origin 居中）：
+ *   视觉尺寸   W = 布局宽 * s
+ *   视觉左上角 = 布局中心 + 位移 - 视觉尺寸/2      （位移 = tx * s）
+ *   布局中心由当前视觉矩形反推得到，不依赖 offsetParent
+ * ===================================================================== */
+let previewScale = 1, previewTranslateX = 0, previewTranslateY = 0;
+let pvDragging = false, pvDragX = 0, pvDragY = 0;
+let pvZoomDragging = false, pvMapDragging = false;
+const ZOOM_MIN = 1, ZOOM_MAX = 15;                 // 最大 1500%
+const ZOOM_MAX_LOG = Math.log(ZOOM_MAX);
+
+function pvGeom() {
+  const sh = $('pvSheet');                    // transform 施加在 sheet 上，img 与 overlay 一起动
+  const stage = document.querySelector('#preview .stage');
+  const ir = sh.getBoundingClientRect();
+  const sr = stage.getBoundingClientRect();
+  const dx = previewTranslateX * previewScale, dy = previewTranslateY * previewScale;
+  return {
+    sr, s: previewScale,
+    dispW: sh.offsetWidth, dispH: sh.offsetHeight,
+    cx: ir.left + ir.width / 2 - dx,      // sheet 布局中心（不含 transform）
+    cy: ir.top + ir.height / 2 - dy
+  };
+}
+/* 位移钳制：图片大于可视区才可平移，且不让图片边缘落到可视区内部 */
+function clampPan(dx, dy, s) {
+  const g = pvGeom();
+  const maxX = Math.max(0, (g.dispW * s - g.sr.width) / 2);
+  const maxY = Math.max(0, (g.dispH * s - g.sr.height) / 2);
+  return [Math.max(-maxX, Math.min(maxX, dx)), Math.max(-maxY, Math.min(maxY, dy))];
+}
+/* 统一缩放入口：保持锚点（client 坐标）下的原图位置不动 */
+function applyZoom(next, ax, ay) {
+  const g = pvGeom();
+  const s2 = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next));
+  if (ax == null) { ax = g.sr.left + g.sr.width / 2; ay = g.sr.top + g.sr.height / 2; }
+  const W0 = g.dispW * g.s, H0 = g.dispH * g.s;
+  const x0 = g.cx + previewTranslateX * g.s - W0 / 2;
+  const y0 = g.cy + previewTranslateY * g.s - H0 / 2;
+  const px = W0 > 0 ? (ax - x0) / W0 : 0.5, py = H0 > 0 ? (ay - y0) / H0 : 0.5;
+  const W1 = g.dispW * s2, H1 = g.dispH * s2;
+  let dx = ax - px * W1 - g.cx + W1 / 2;
+  let dy = ay - py * H1 - g.cy + H1 / 2;
+  [dx, dy] = clampPan(dx, dy, s2);
+  previewScale = s2;
+  previewTranslateX = dx / s2; previewTranslateY = dy / s2;
+  if (s2 === ZOOM_MIN) { previewTranslateX = 0; previewTranslateY = 0; }
+  updateTransform();
+}
+/* 把原图归一化点 (px,py) 移到可视区中心（导航图拖动用） */
+function panTo(px, py) {
+  const g = pvGeom();
+  const W = g.dispW * g.s, H = g.dispH * g.s;
+  let dx = (g.sr.left + g.sr.width / 2) - px * W - g.cx + W / 2;
+  let dy = (g.sr.top + g.sr.height / 2) - py * H - g.cy + H / 2;
+  [dx, dy] = clampPan(dx, dy, g.s);
+  previewTranslateX = dx / g.s; previewTranslateY = dy / g.s;
+  updateTransform();
+}
+function resetZoom() {
+  previewScale = 1; previewTranslateX = 0; previewTranslateY = 0;
+  $('pvSheet').style.transform = 'scale(1) translate(0px, 0px)';
+  $('pvSheet').classList.remove('zoomed', 'dragging');
+  syncZoomUI(); updateMapView();
+}
+function updateTransform() {
+  $('pvSheet').style.transform = `scale(${previewScale}) translate(${previewTranslateX}px, ${previewTranslateY}px)`;
+  $('pvSheet').classList.toggle('zoomed', previewScale > 1);
+  syncZoomUI(); updateMapView();
+}
+
+/* ---- 侧边滑条：对数映射（100% ~ 1000%），拖动手感均匀 ---- */
+const ratioOf = s => Math.log(Math.max(1, s)) / ZOOM_MAX_LOG;                   // 0..1 → 100%..1500%
+const scaleOf = r => Math.exp(Math.max(0, Math.min(1, r)) * ZOOM_MAX_LOG);
+function syncZoomUI() {
+  const r = ratioOf(previewScale) * 100;
+  $('pvZoomFill').style.height = r + '%';
+  $('pvZoomKnob').style.bottom = r + '%';
+  $('pvZoomVal').textContent = Math.round(previewScale * 100) + '%';
+}
+function ratioAt(clientY) {                                     // 底部 0 → 顶部 1
+  const tr = $('pvZoomTrack').getBoundingClientRect();
+  if (!tr.height) return 0;
+  const r = 1 - (clientY - tr.top) / tr.height;
+  return r < 0.03 ? 0 : r;                                      // 拖到接近底部时吸附回 100%
+}
+/* ---- 导航缩略图：可视区矩形在整图中的位置，放大到看不全时才出现 ---- */
+function updateMapView() {
+  const map = $('pvMap'), mapImg = $('pvMapImg'), view = $('pvMapView');
+  if (!$('preview').classList.contains('show') || !mapImg.getAttribute('src')) { map.classList.remove('show'); return; }
+  const g = pvGeom();
+  const W = g.dispW * g.s, H = g.dispH * g.s;
+  if (W <= g.sr.width + 1 && H <= g.sr.height + 1) { map.classList.remove('show'); return; }
+  map.classList.add('show');
+  const x0 = g.cx + previewTranslateX * g.s - W / 2, y0 = g.cy + previewTranslateY * g.s - H / 2;
+  const vx = (g.sr.left - x0) / W, vy = (g.sr.top - y0) / H;
+  const mr = mapImg.getBoundingClientRect(), cr = map.getBoundingClientRect();
+  if (!mr.width || !mr.height) return;
+  view.style.left = (mr.left - cr.left + Math.max(0, vx) * mr.width) + 'px';
+  view.style.top = (mr.top - cr.top + Math.max(0, vy) * mr.height) + 'px';
+  view.style.width = Math.min(1, g.sr.width / W) * mr.width + 'px';
+  view.style.height = Math.min(1, g.sr.height / H) * mr.height + 'px';
+}
+function panFromMap(clientX, clientY) {
+  const mr = $('pvMapImg').getBoundingClientRect();
+  if (!mr.width || !mr.height) return;
+  panTo(Math.max(0, Math.min(1, (clientX - mr.left) / mr.width)),
+        Math.max(0, Math.min(1, (clientY - mr.top) / mr.height)));
+}
+
+/* ---- 事件 ---- */
+/* 滚轮：指数倍率。系数取 ln(15)/2000 → 约 20 格滚完 100%→1500%，一格 ≈ ×1.145 */
+$('pvSheet').addEventListener('wheel', e => {
+  e.preventDefault();
+  let dy = e.deltaY;
+  if (e.deltaMode === 1) dy *= 16; else if (e.deltaMode === 2) dy *= 100;
+  dy = Math.max(-240, Math.min(240, dy));
+  applyZoom(previewScale * Math.exp(-dy * 0.00135), e.clientX, e.clientY);
+}, { passive: false });
+$('pvSheet').addEventListener('mousedown', e => {
+  if (previewScale > 1) {
+    e.preventDefault();
+    pvDragging = true;
+    pvDragX = e.clientX - previewTranslateX * previewScale;
+    pvDragY = e.clientY - previewTranslateY * previewScale;
+    $('pvSheet').classList.add('dragging');
+  }
+});
+$('pvZoomTrack').addEventListener('mousedown', e => {
+  e.preventDefault();
+  pvZoomDragging = true;
+  applyZoom(scaleOf(ratioAt(e.clientY)));
+});
+$('pvZoomIn').addEventListener('click', () => applyZoom(previewScale * 1.3));
+$('pvZoomOut').addEventListener('click', () => applyZoom(previewScale / 1.3));
+$('pvMap').addEventListener('mousedown', e => {
+  if (previewScale <= 1) return;
+  e.preventDefault();
+  pvMapDragging = true;
+  panFromMap(e.clientX, e.clientY);
+});
+document.addEventListener('mousemove', e => {
+  if (pvDragging) {
+    e.preventDefault();
+    previewTranslateX = (e.clientX - pvDragX) / previewScale;
+    previewTranslateY = (e.clientY - pvDragY) / previewScale;
+    const [dx, dy] = clampPan(previewTranslateX * previewScale, previewTranslateY * previewScale, previewScale);
+    previewTranslateX = dx / previewScale; previewTranslateY = dy / previewScale;
+    updateTransform();
+  } else if (pvZoomDragging) {
+    applyZoom(scaleOf(ratioAt(e.clientY)));
+  } else if (pvMapDragging) {
+    panFromMap(e.clientX, e.clientY);
+  }
+});
+document.addEventListener('mouseup', () => {
+  if (pvDragging) { pvDragging = false; $('pvSheet').classList.remove('dragging'); }
+  pvZoomDragging = false; pvMapDragging = false;
+});
+window.addEventListener('resize', () => {
+  if ($('preview').classList.contains('show')) {
+    const p = currentPreviewPage();
+    if (p) lockPreviewWidth(p);
+    updateMapView(); syncOverlayCanvas();
+  }
+});
+
+/* =====================================================================
+ * 导出管线：生成最终 PDF 并下载
+ *  - 不压缩（none）：pdf-lib copyPages 矢量重写 + /Rotate 旋转 + 内容流矩阵镜像
+ *  - 低/中/高压缩：pdf.js 把每页渲染为 JPEG（按 DPI/质量梯度）→ 嵌入新 PDF
+ * ===================================================================== */
+
+/* =====================================================================
+ * 导出管线：统一「一个矢量特例 + 一条栅格干道」
+ *   - 矢量特例：未镜像 + 矢量保真档 + 未开增强 的 PDF 页 → copyPages + /Rotate
+ *   - 其余（图片页 / 栅格档 / 镜像 / 增强）→ 同一条栅格管线：渲染→变换→增强→JPEG→落页
+ * 统一量：渲染 scale = DPI / 72（矢量保真档下需栅化的 PDF 页用 300 DPI 兜底）
+ * ===================================================================== */
+
+const MM2PT = 72 / 25.4;
+const PAPERS = { A4: [210, 297], A5: [148, 210] };   // mm
+
+/* 图片页源位图：thumbCache[uid] 即解码位图 */
+function getImageBitmap(page) {
+  const b = state.thumbCache[page.uid];
+  return b && b.width ? b : null;
+}
+
+/* 图片页面布局：返回页面 pt 尺寸 + 目标像素 + 摆放（仅图片页使用）
+ *
+ * 这里有两个必须分开的量，早期版本把它们混成了一个，直接导致「预览里图片远小于页面」：
+ *   · drawWpt/drawHpt —— 图片在页面上的**物理尺寸**（pt）。只由页面尺寸和 fit 规则决定，
+ *     与渲染 DPI 无关。
+ *   · targetW/targetH —— 按渲染 DPI 换算出的**像素**尺寸，只决定画布精细度。
+ *
+ * 旧写法 `drawWpt = targetW * 72 / effDpi` 让物理尺寸被 DPI 反推：同一张扫描件
+ * 在 300 DPI 的预览里只占 A4 宽度 43%，在 150 DPI 的导出里却占 87% —— 预览与导出对不上。
+ * 现在两者各归其位：fit 决定版面，DPI 只决定像素。 */
+const IMG_MAX_PIXELS = 12e6;      // 目标画布像素上限，防止把图片放大很多倍时内存爆掉
+function planForImage(page, q, s) {
+  const bmp = getImageBitmap(page);
+  const [mw, mh] = PAPERS[s.paper];
+  const rot90 = page.rot % 180 !== 0;
+  const ow = rot90 ? bmp.height : bmp.width;
+  const oh = rot90 ? bmp.width : bmp.height;
+  const landscape = s.orient === 'portrait' ? false : ow > oh;
+  let pageW = mw * MM2PT, pageH = mh * MM2PT;
+  if (landscape) [pageW, pageH] = [pageH, pageW];
+  const effDpi = q.dpi || 150;
+  const pxPerPt = effDpi / 72;                 // 渲染分辨率：只影响像素，不影响版面
+  // contain（默认）＝等比放大到刚好触到页面边缘（长边或宽边先碰到）
+  // cover           ＝等比放大到铺满页面，超出部分居中裁切
+  const k = s.fit === 'cover'
+    ? Math.max(pageW / ow, pageH / oh)
+    : Math.min(pageW / ow, pageH / oh);
+  // 预览里手动调整过的缩放/位移（page.imgAdj），没调过就是 1 / 0 / 0
+  const adj = page.imgAdj || null;
+  const zoom = (adj && adj.s > 0) ? adj.s : 1;
+  const drawWpt = ow * k * zoom, drawHpt = oh * k * zoom;
+  let offX = (pageW - drawWpt) / 2 + ((adj && adj.dx) || 0) * pageW;
+  let offY = (pageH - drawHpt) / 2 + ((adj && adj.dy) || 0) * pageH;
+  // 图片不许整个跑出页面：至少留一条边与页面对齐（否则拖出去就找不回来了）
+  const loX = Math.min(0, pageW - drawWpt), hiX = Math.max(0, pageW - drawWpt);
+  const loY = Math.min(0, pageH - drawHpt), hiY = Math.max(0, pageH - drawHpt);
+  offX = Math.max(loX, Math.min(hiX, offX));
+  offY = Math.max(loY, Math.min(hiY, offY));
+  let targetW = Math.max(2, Math.round(drawWpt * pxPerPt));
+  let targetH = Math.max(2, Math.round(drawHpt * pxPerPt));
+  const area = targetW * targetH;
+  if (area > IMG_MAX_PIXELS) {                 // 等比降采样，保持与 drawWpt 的比例一致
+    const f = Math.sqrt(IMG_MAX_PIXELS / area);
+    targetW = Math.max(2, Math.round(targetW * f));
+    targetH = Math.max(2, Math.round(targetH * f));
+  }
+  return { pageW, pageH, targetW, targetH, drawWpt, drawHpt, offX, offY, fit: s.fit, effDpi, zoom };
+}
+
+/* ---- 预览内手动摆放图片（缩放 + 拖动） ----
+ * page.imgAdj = { s, dx, dy }：s 是相对「适应页面」的缩放倍数；dx/dy 是相对页面的归一化位移。
+ * 它直接参与 planForImage，所以预览 / 缩略图 / 导出三处自动一致；置 null 即回到默认适应。 */
+function imgAdjOf(page) { return (page && page.imgAdj) ? page.imgAdj : null; }
+function ensureImgAdj(page) {
+  if (!page.imgAdj) page.imgAdj = { s: 1, dx: 0, dy: 0 };
+  const a = page.imgAdj;
+  if (!(a.s > 0)) a.s = 1;
+  if (typeof a.dx !== 'number') a.dx = 0;
+  if (typeof a.dy !== 'number') a.dy = 0;
+  return a;
+}
+function resetImgAdj(page) { if (page) page.imgAdj = null; }
+/* 把 dx/dy 夹回「图片至少有一条边与页面对齐」的范围，否则拖到边界后会粘住、回拖不跟手 */
+function clampAdjFor(adj, pageW, pageH, dw, dh) {
+  const bx = (pageW - dw) / 2, by = (pageH - dh) / 2;
+  const loX = Math.min(0, pageW - dw), hiX = Math.max(0, pageW - dw);
+  const loY = Math.min(0, pageH - dh), hiY = Math.max(0, pageH - dh);
+  adj.dx = Math.max((loX - bx) / pageW, Math.min((hiX - bx) / pageW, adj.dx));
+  adj.dy = Math.max((loY - by) / pageH, Math.min((hiY - by) / pageH, adj.dy));
+  return adj;
+}
+function clampImgAdj(page) {
+  const adj = ensureImgAdj(page);
+  const plan = planForImage(page, effQualityOf(page), readImgSettings());
+  return clampAdjFor(adj, plan.pageW, plan.pageH, plan.drawWpt, plan.drawHpt);
+}
+/* 拖拽 / 拖滑条时的低分实时预览：复用已渲染的图片内容 canvas，只重新摆放 + 合成，
+ * 不重跑旋转与白底增强（那一步在几百毫秒级，逐帧跑会卡）。 */
+let imgLive = null;
+/* 缓存指纹：旋转/镜像/增强/画质任一变化，缓存就作废（否则拖拽时看到的是旧内容） */
+function imgSig(page) {
+  const q = effQualityOf(page);
+  return [page.uid, page.rot, !!page.hMirror, !!page.vMirror,
+          effEnhanceOf(page), q && q.dpi].join('|');
+}
+function primeImgLive(page) {
+  if (!page || page.kind !== 'image') { imgLive = null; return; }
+  const sig = imgSig(page);
+  if (imgLive && imgLive.sig === sig) return;
+  try {
+    const inner = renderImageCanvas(page, effQualityOf(page));
+    imgLive = { uid: page.uid, sig: sig, cv: inner.cv };
+  } catch (e) { console.error('预渲染图片内容失败:', e); imgLive = null; }
+}
+function clearImgLive() { imgLive = null; }
+function liveImgPreview(page) {
+  if (!imgLive || imgLive.sig !== imgSig(page)) return false;
+  const plan = planForImage(page, effQualityOf(page), readImgSettings());
+  const pc = composeImagePage(plan, imgLive.cv, 760);
+  drawOps(pc.getContext('2d'), page, pc.width, pc.height, ovMeta(page));
+  $('pvImg').src = pc.toDataURL('image/jpeg', 0.62);
+  return true;
+}
+
+/* =====================================================================
+ * 白底增强：局部光照归一化 + 色调曲线 + 条件性色度处理
+ * ---------------------------------------------------------------------
+ * 思路（对标扫描件理想效果）：
+ *   1) 局部背景估计：分块取 90 分位作为该块"纸面亮度"，做块级最大值
+ *      膨胀（防止大块深色区域被当成纸面），再双线性上采样成背景图。
+ *   2) 光照归一化：ratio = 像素亮度 / 局部纸面亮度。ratio≈1 即纸面，
+ *      与页面位置无关 → 消除侧光/暗角造成的黄灰不匀。
+ *   3) 色调曲线：对 ratio 做 gamma 映射；ratio >= 白点阈值直接压成纯白。
+ *   4) 色度：彩色门限。低色度（纸面泛黄/JPEG 噪点）去色，
+ *      高色度（红章等真实彩色内容）保留并按色阶增强 → 印章更清晰。
+ *      深色文字亮度被同步压低，因此文字更黑、对比度更高。
+ * 图片页与 PDF 栅格页通用。
+ * ===================================================================== */
+function enhanceCanvas(cv, level) {
+  if (!level || level === 'none') return;
+
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const img = ctx.getImageData(0, 0, cv.width, cv.height);
+  const d = img.data;
+  const W = cv.width, H = cv.height;
+
+  // ---- 参数（按档位） ----
+  const isStd = level === 'standard';
+  const GAMMA   = isStd ? 1.30 : 1.00;   // ratio 曲线指数（越大对比越强）
+  const WR      = isStd ? 0.93 : 0.97;   // 白点：ratio 高于此值 → 纯白
+  const BR      = 0.30;                  // 黑点：ratio 低于此值 → 全黑
+  const C_LO    = 3.0;                   // 色度门限下沿（低于此视为无彩噪点）
+  const C_HI    = 14.0;                  // 色度门限上沿（高于此完整保留彩色）
+  const C_BOOST = isStd ? 1.70 : 1.30;   // 真实彩色的色阶增强
+  const C_CAP   = 120.0;                 // 色度增强上限，防溢出
+  const FLOOR_K = 0.72;                  // 背景下限系数（×全图纸面亮度），防大块深色被误洗白
+
+  // ---- Pass 0: 全图纸面亮度估计（90 分位，隔像素抽样） ----
+  // 用于给局部背景设下限：纸面亮度不可能远低于全图纸面水平，
+  // 否则一块很大的深色内容会被当成"极暗纸面"而整个洗成纯白。
+  const ghist = new Uint32Array(256);
+  let gcnt = 0;
+  for (let i = 0; i < d.length; i += 8) {
+    ghist[(d[i] * 54 + d[i+1] * 183 + d[i+2] * 19) >> 8]++;
+    gcnt++;
+  }
+  let gcum = 0, gP90 = 255;
+  const gneed = gcnt * 0.90;
+  for (let v = 0; v < 256; v++) {
+    gcum += ghist[v];
+    if (gcum >= gneed) { gP90 = v; break; }
+  }
+  const BG_FLOOR = Math.max(1, gP90 * FLOOR_K);
+
+  // ---- Pass 1: 局部背景块图 ----
+  const BLOCK = Math.max(16, Math.round(Math.min(W, H) / 17));
+  const bw = Math.ceil(W / BLOCK), bh = Math.ceil(H / BLOCK);
+  const bm = new Float32Array(bw * bh);
+  for (let by = 0; by < bh; by++) {
+    const y0 = by * BLOCK, y1 = Math.min(y0 + BLOCK, H);
+    for (let bx = 0; bx < bw; bx++) {
+      const x0 = bx * BLOCK, x1 = Math.min(x0 + BLOCK, W);
+      // 块内亮度直方图（隔行隔列抽样）
+      const hist = new Uint32Array(256);
+      let cnt = 0;
+      for (let y = y0; y < y1; y += 2) {
+        for (let x = x0; x < x1; x += 2) {
+          const i = (y * W + x) * 4;
+          hist[(d[i] * 54 + d[i+1] * 183 + d[i+2] * 19) >> 8]++;
+          cnt++;
+        }
+      }
+      // 取 90 分位：排除文字/线条，代表纸面亮度
+      let cum = 0, val = 255;
+      const need = cnt * 0.90;
+      for (let v = 0; v < 256; v++) {
+        cum += hist[v];
+        if (cum >= need) { val = v; break; }
+      }
+      bm[by * bw + bx] = val;
+    }
+  }
+
+  // ---- Pass 2: 块级最大值膨胀（3x3，越界跳过） ----
+  // 纸面亮度必须不低于邻近块，避免"深色大块"把自身误判成背景而洗白
+  const bgB = new Float32Array(bw * bh);
+  for (let by = 0; by < bh; by++) {
+    for (let bx = 0; bx < bw; bx++) {
+      let mx = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = by + dy;
+        if (yy < 0 || yy >= bh) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = bx + dx;
+          if (xx < 0 || xx >= bw) continue;
+          const v = bm[yy * bw + xx];
+          if (v > mx) mx = v;
+        }
+      }
+      bgB[by * bw + bx] = mx;
+    }
+  }
+
+  // ---- Pass 3: ratio → 输出亮度 的查表 ----
+  const RL = 1024;
+  const rlut = new Float32Array(RL + 1);
+  const rspan = Math.max(WR - BR, 1e-6);
+  for (let k = 0; k <= RL; k++) {
+    let t = (k / RL - BR) / rspan;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    rlut[k] = Math.pow(t, GAMMA) * 255;
+  }
+
+  // ---- Pass 4: 双线性上采样背景图 + 逐像素应用 ----
+  for (let y = 0; y < H; y++) {
+    // 块坐标映射（与块中心对齐，便于线性插值）
+    let fy = y / BLOCK - 0.5;
+    if (fy < 0) fy = 0; else if (fy > bh - 1) fy = bh - 1;
+    const y0 = Math.floor(fy), y1 = Math.min(y0 + 1, bh - 1), ty = fy - y0;
+    for (let x = 0; x < W; x++) {
+      let fx = x / BLOCK - 0.5;
+      if (fx < 0) fx = 0; else if (fx > bw - 1) fx = bw - 1;
+      const x0 = Math.floor(fx), x1 = Math.min(x0 + 1, bw - 1), tx = fx - x0;
+
+      const r0 = y0 * bw, r1 = y1 * bw;
+      const b00 = bgB[r0 + x0], b01 = bgB[r0 + x1];
+      const b10 = bgB[r1 + x0], b11 = bgB[r1 + x1];
+      const bgv = Math.max(
+        (b00 * (1 - tx) + b01 * tx) * (1 - ty) + (b10 * (1 - tx) + b11 * tx) * ty,
+        BG_FLOOR, 1);
+
+      const i = (y * W + x) * 4;
+      const r = d[i], g = d[i+1], b = d[i+2];
+      // 感知亮度（整数系数，与色度计算保持一致）
+      const gray = (r * 54 + g * 183 + b * 19) >> 8;
+      const ratio = gray / bgv;
+
+      let k = (ratio * RL) | 0;
+      if (k < 0) k = 0; else if (k > RL) k = RL;
+      const newGray = rlut[k];
+
+      // 纸面净化：ratio 已达白点 → 直接纯白
+      if (ratio >= WR) { d[i] = d[i+1] = d[i+2] = 255; continue; }
+
+      // 条件性色度：低色度去色，高色度保留并增强
+      const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+      const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+      const c = mx - mn;
+      let sc = 0;
+      if (c > C_LO) {
+        let w = (c - C_LO) / (C_HI - C_LO);
+        if (w > 1) w = 1;
+        w = w * w * (3 - 2 * w);                     // smoothstep
+        const co = Math.min(c * C_BOOST, C_CAP) * w;
+        sc = co / c;
+      }
+
+      d[i]   = Math.max(0, Math.min(255, Math.round(newGray + (r - gray) * sc)));
+      d[i+1] = Math.max(0, Math.min(255, Math.round(newGray + (g - gray) * sc)));
+      d[i+2] = Math.max(0, Math.min(255, Math.round(newGray + (b - gray) * sc)));
+    }
+  }
+
+  ctx.putImageData(img, 0, 0);
+}
+
+/* =====================================================================
+ * 叠加层（Overlay）：水印 / 页码（全局） + 马赛克 / 高亮 / 文本框（单页）
+ * ---------------------------------------------------------------------
+ * 坐标约定：所有 op 一律使用「最终版面」归一化坐标（0~1），原点在版面左上角，
+ *   x 向右、y 向下；w/h 分别以版面宽/高为单位。旋转与镜像在生成版面画布时
+ *   已经处理完毕，overlay 不需要再关心，因此页码不会随页面旋转跑偏。
+ * 字号：统一以 pt 存储，绘制时按版面像素高度换算（k = Hpx / ptH），
+ *   保证「缩略图 / 预览 / 导出」三种分辨率下观感完全一致。
+ * 绘制顺序：水印（底）→ 单页标注 → 页码（顶）。
+ * ===================================================================== */
+const OV_FONT = '"Microsoft YaHei","PingFang SC",system-ui,sans-serif';
+const NO_OPS = [];
+
+function pageOps(page) { return (page && Array.isArray(page.ops)) ? page.ops : NO_OPS; }
+function hasOps(page) { return pageOps(page).length > 0; }
+/* 全局叠加层是否生效 */
+function overlayOn() {
+  const o = state.overlay;
+  return !!(o && ((o.wm && o.wm.on) || (o.pn && o.pn.on)));
+}
+/* 该页是否必须走栅格干道（矢量保真也救不了）：有叠加层或有单页标注 */
+function pageNeedsRaster(page) { return overlayOn() || hasOps(page); }
+
+/* 当前页的全局序号（1-based），拖动排序后自动跟着变 —— 页码依赖它 */
+function globalIndexOf(page) {
+  const i = state.pages.findIndex(p => p.uid === page.uid);
+  return i < 0 ? 1 : i + 1;
+}
+/* 版面 pt 尺寸：PDF = 旋转后的页面；图片 = 纸张 */
+function pagePtSize(page) {
+  if (page.kind === 'image') {
+    const plan = planForImage(page, effQualityOf(page), readImgSettings());
+    return { w: plan.pageW, h: plan.pageH };
+  }
+  const swap = page.rot % 180 !== 0;
+  return { w: swap ? page.h : page.w, h: swap ? page.w : page.h };
+}
+function ovMeta(page) {
+  const pt = pagePtSize(page);
+  return { no: globalIndexOf(page), total: state.pages.length, ptH: pt.h };
+}
+
+/* 统一入口：在已渲染好的版面画布上叠加全部内容 */
+function drawOps(ctx, page, W, H, meta) {
+  if (!ctx || !W || !H) return;
+  const ptH = (meta && meta.ptH) || 842;
+  const k = H / ptH;                                   // pt → px
+  drawWatermark(ctx, W, H, k);
+  const ops = pageOps(page);
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i];
+    if (op.t === 'mos') drawMosaicOp(ctx, op, W, H);
+    else if (op.t === 'br') drawBrushOp(ctx, op, W, H);
+    else if (op.t === 'hl') drawHighlightOp(ctx, op, W, H);
+    else if (op.t === 'tx') drawTextOp(ctx, op, W, H, k);
+  }
+  drawPageNumber(ctx, W, H, k, meta);
+}
+
+/* ---------- 水印 ---------- */
+function drawWatermark(ctx, W, H, k) {
+  const wm = state.overlay.wm;
+  if (!wm || !wm.on) return;
+  const alpha = Math.max(0.02, Math.min(1, wm.opacity));
+  if (wm.type === 'image') {
+    const img = state.wmImage;
+    if (!img || !img.width || !img.height) return;
+    const iw = W * 0.26;                               // 单幅占版面宽度的 26%
+    const ih = iw * img.height / img.width;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    tilePaint(ctx, W, H, iw, ih, wm.gap, wm.angle, (cx, cy) => {
+      ctx.drawImage(img, cx - iw / 2, cy - ih / 2, iw, ih);
+    });
+    ctx.restore();
+    return;
+  }
+  const text = String(wm.text || '').trim();
+  if (!text) return;
+  const fs = Math.max(1, wm.size * k);
+  ctx.save();
+  ctx.font = fs + 'px ' + OV_FONT;
+  const tw = ctx.measureText(text).width;
+  const th = fs * 1.25;
+  if (tw <= 0) { ctx.restore(); return; }
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = wm.color || '#8a8a8a';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  tilePaint(ctx, W, H, tw, th, wm.gap, wm.angle, (cx, cy) => {
+    ctx.fillText(text, cx - tw / 2, cy);
+  });
+  ctx.restore();
+}
+/* 旋转坐标系下的平铺：以版面中心为原点，步长含间距倍率 */
+function tilePaint(ctx, W, H, iw, ih, gapMul, angleDeg, paint) {
+  const g = Math.max(1.05, gapMul || 1.6);
+  const stepX = Math.max(1, iw * g);
+  const stepY = Math.max(1, Math.max(ih, iw * 0.35) * g);
+  const R = Math.hypot(W, H) / 2;
+  const cols = Math.ceil(R / stepX) + 1;
+  const rows = Math.ceil(R / stepY) + 1;
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate((angleDeg || 0) * Math.PI / 180);
+  for (let r = -rows; r <= rows; r++) {
+    for (let c = -cols; c <= cols; c++) paint(c * stepX, r * stepY);
+  }
+  ctx.restore();
+}
+
+/* ---------- 页码 ---------- */
+function fmtPageNo(fmt, n, total) {
+  switch (fmt) {
+    case 'n-m':      return n + ' / ' + total;
+    case 'page-n':   return '第 ' + n + ' 页';
+    case 'page-n-m': return '第 ' + n + ' 页 / 共 ' + total + ' 页';
+    default:         return String(n);
+  }
+}
+function drawPageNumber(ctx, W, H, k, meta) {
+  const pn = state.overlay.pn;
+  if (!pn || !pn.on) return;
+  const idx = (meta && meta.no) || 1;
+  const rawTotal = (meta && meta.total) || idx;
+  if (pn.skip && idx === 1) return;                    // 首页不加页码
+  const start = Math.max(1, pn.start || 1);
+  const shown = idx - (pn.skip ? 1 : 0) + (start - 1);
+  const total = Math.max(rawTotal - (pn.skip ? 1 : 0), 1) + (start - 1);
+  const txt = fmtPageNo(pn.fmt, shown, total);
+  const fs = Math.max(1, pn.size * k);
+  ctx.save();
+  ctx.font = fs + 'px ' + OV_FONT;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = pn.color || '#333333';
+  const tw = ctx.measureText(txt).width;
+  const m = Math.max(fs * 0.8, H * 0.022);             // 底部安全边距
+  let x = (W - tw) / 2;                                // center
+  if (pn.pos === 'left') x = m;
+  else if (pn.pos === 'right') x = W - tw - m;
+  ctx.fillText(txt, x, H - m);
+  ctx.restore();
+}
+
+/* ---------- 马赛克 ----------
+ * 块均值取自「当前画布」，即渲染好的页面内容；因为块边长按版面宽度比例缩放，
+ * 在预览（几百 px）与导出（几千 px）上得到的是同一个视觉粒度。
+ */
+function drawMosaicOp(ctx, op, W, H) {
+  const x = Math.max(0, Math.round(op.x * W));
+  const y = Math.max(0, Math.round(op.y * H));
+  const w = Math.min(Math.round(op.w * W), ctx.canvas.width - x);
+  const h = Math.min(Math.round(op.h * H), ctx.canvas.height - y);
+  if (w < 2 || h < 2) return;
+  const bs = Math.max(2, Math.round((op.b || 0.012) * W));
+  let src;
+  try { src = ctx.getImageData(x, y, w, h); } catch (e) { return; }
+  const d = src.data;
+  for (let by = 0; by < h; by += bs) {
+    const y1 = Math.min(by + bs, h);
+    for (let bx = 0; bx < w; bx += bs) {
+      const x1 = Math.min(bx + bs, w);
+      let r = 0, g = 0, b = 0, n = 0;
+      for (let yy = by; yy < y1; yy++) {
+        let i = (yy * w + bx) * 4;
+        for (let xx = bx; xx < x1; xx++, i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+      }
+      if (!n) continue;
+      r = (r / n) | 0; g = (g / n) | 0; b = (b / n) | 0;
+      for (let yy = by; yy < y1; yy++) {
+        let i = (yy * w + bx) * 4;
+        for (let xx = bx; xx < x1; xx++, i += 4) { d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; }
+      }
+    }
+  }
+  ctx.putImageData(src, x, y);
+}
+
+/* ---------- 区域高亮（multiply 混色，底下的文字仍然可见） ---------- */
+function drawHighlightOp(ctx, op, W, H) {
+  if (!(op.w > 0 && op.h > 0)) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.globalAlpha = Math.max(0.05, Math.min(1, op.a == null ? 0.4 : op.a));
+  ctx.fillStyle = op.c || '#ffd400';
+  ctx.fillRect(op.x * W, op.y * H, op.w * W, op.h * H);
+  ctx.restore();
+}
+
+/* ---------- 画笔（自由路径笔画） ----------
+ * op: { t:'br', c:颜色, lw:线宽(相对页宽的比值), pts:[[x,y],...] }
+ * 另外始终维护 x/y/w/h 包围盒：命中测试、选中框与 8 个控制点都走和其他标注同一套逻辑，
+ * 所以「选中再编辑 / 移动 / 缩放 / 删除」不用为画笔单写一遍。
+ * ⚠️ 包围盒要把线宽算进去：否则细笔画的命中区只有一条线，鼠标根本点不中。 */
+function updateBrushBounds(op) {
+  const pts = op.pts || [];
+  if (!pts.length) return;
+  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i][0] < x0) x0 = pts[i][0];
+    if (pts[i][0] > x1) x1 = pts[i][0];
+    if (pts[i][1] < y0) y0 = pts[i][1];
+    if (pts[i][1] > y1) y1 = pts[i][1];
+  }
+  const r = (op.lw || 0.006) / 2;
+  op.x = clamp01(x0 - r); op.y = clamp01(y0 - r);
+  op.w = Math.max(0.006, Math.min(1 - op.x, x1 - x0 + 2 * r));
+  op.h = Math.max(0.005, Math.min(1 - op.y, y1 - y0 + 2 * r));
+}
+function drawBrushOp(ctx, op, W, H) {
+  const pts = op.pts;
+  if (!pts || !pts.length) return;
+  const col = op.c || '#e03131';
+  /* 线宽按页宽等比换算 —— 缩略图、预览、导出三处才会完全一致 */
+  const lw = Math.max(1, (op.lw || 0.006) * W);
+  ctx.save();
+  ctx.strokeStyle = col; ctx.fillStyle = col;
+  ctx.lineWidth = lw; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  if (pts.length === 1) {                     // 单击也留一个圆点，不至于「点了没反应」
+    ctx.beginPath();
+    ctx.arc(pts[0][0] * W, pts[0][1] * H, lw / 2, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0] * W, pts[0][1] * H);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0] * W, pts[i][1] * H);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+/* 点到线段的距离（归一化坐标）—— 画笔的命中测试用「靠近笔画」而不是「落在包围盒内」，
+ * 不然斜着画一笔的包围盒会罩住一大片空白，旁边的标注就点不中了。 */
+function distToSeg(p, a, b) {
+  const vx = b[0] - a[0], vy = b[1] - a[1];
+  const len2 = vx * vx + vy * vy;
+  let t = len2 > 1e-12 ? ((p.x - a[0]) * vx + (p.y - a[1]) * vy) / len2 : 0;
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  return Math.hypot(p.x - (a[0] + vx * t), p.y - (a[1] + vy * t));
+}
+function hitBrush(o, p) {
+  const pts = o.pts;
+  if (!pts || !pts.length) return false;
+  const tol = Math.max(0.008, (o.lw || 0.006) * 0.75);
+  if (pts.length === 1) return Math.hypot(p.x - pts[0][0], p.y - pts[0][1]) <= tol;
+  for (let i = 1; i < pts.length; i++) if (distToSeg(p, pts[i - 1], pts[i]) <= tol) return true;
+  return false;
+}
+/* ---------- 文本框 ---------- */
+function wrapText(ctx, text, maxW) {
+  const out = [];
+  String(text == null ? '' : text).split('\n').forEach(para => {
+    if (!para) { out.push(''); return; }
+    let line = '';
+    for (const ch of para) {
+      const t = line + ch;
+      if (line && ctx.measureText(t).width > maxW) { out.push(line); line = ch; }
+      else line = t;
+    }
+    out.push(line);
+  });
+  return out;
+}
+function drawTextOp(ctx, op, W, H, k) {
+  const fs = Math.max(1, (op.s || 12) * k);
+  const x0 = op.x * W, y0 = op.y * H;
+  const bw = Math.max(fs, op.w * W);
+  ctx.save();
+  ctx.font = (op.b ? 'bold ' : '') + fs + 'px ' + OV_FONT;
+  ctx.textBaseline = 'top';
+  /* 文本框底色恒为纯透明：早期版本会铺一层 0.82 不透明度的白底衬板（op.bg），
+   * 实际效果是在原文件上盖了一层灰白，用户要求去掉。这里不再绘制任何背景，
+   * 即使历史数据里残留 bg 字段也不生效。 */
+  ctx.fillStyle = op.c || '#1f2733';
+  const lines = wrapText(ctx, op.text || '', bw - 2);
+  if (op.al === 'center') { ctx.textAlign = 'center'; }
+  else if (op.al === 'right') { ctx.textAlign = 'right'; }
+  else { ctx.textAlign = 'left'; }
+  let tx = x0;
+  if (op.al === 'center') tx = x0 + bw / 2;
+  else if (op.al === 'right') tx = x0 + bw;
+  const lh = fs * 1.35;
+  for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], tx, y0 + i * lh);
+  ctx.restore();
+}
+
+/* 图片页的「页面版面画布」：把图片按纸张/适配规则摆到页面上并留出白边。
+ * 预览、导出、叠加三者共用这张版面作为统一坐标系。
+ * 预览固定按 300 DPI 的版面渲染（画质档位只影响 JPEG 编码质量，不降采样——
+ * 与 PDF 页预览的既有口径一致）；导出则按该页生效档位。maxW 用于缩略图降采样。 */
+/* 把「图片内容 canvas」按 plan 摆到页面版面上。
+ * 拆出来是为了让拖拽图片时的实时预览能**复用已渲染的内容 canvas**，
+ * 只重新摆放 + 合成（几十毫秒），而不必每次重跑旋转/增强（几百毫秒）。 */
+function composeImagePage(plan, innerCv, maxW) {
+  let scale = plan.targetW / Math.max(plan.drawWpt, 1e-6);   // px / pt
+  if (maxW && plan.pageW * scale > maxW) scale = maxW / plan.pageW;
+  const PW = Math.max(1, Math.round(plan.pageW * scale));
+  const PH = Math.max(1, Math.round(plan.pageH * scale));
+  const pc = document.createElement('canvas');
+  pc.width = PW; pc.height = PH;
+  const pctx = pc.getContext('2d');
+  pctx.fillStyle = '#fff'; pctx.fillRect(0, 0, PW, PH);
+  pctx.drawImage(innerCv, plan.offX * scale, plan.offY * scale,
+                 Math.max(1, plan.drawWpt * scale), Math.max(1, plan.drawHpt * scale));
+  return pc;
+}
+function imagePageCanvas(page, maxW, exportQ) {
+  const q = exportQ || QUALITY['q-high'];
+  const inner = renderImageCanvas(page, q);            // { cv, plan }（cv 为图片内容，已含变换与增强）
+  return { cv: composeImagePage(inner.plan, inner.cv, maxW), plan: inner.plan };
+}
+
+/* 把页面（图片或 PDF 栅格）变换后的 canvas 编码为 JPEG 字节 */
+function canvasToJpegBytes(cv, q = 0.9) {
+  return new Promise((res, rej) => {
+    cv.toBlob(async b => {
+      if (!b) return rej(new Error('canvas encode failed'));
+      try { res(new Uint8Array(await b.arrayBuffer())); }
+      catch (e) { rej(e); }
+    }, 'image/jpeg', q);
+  });
+}
+
+/* 图片页渲染：白底 → 旋转/镜像 → 增强 → 返回 canvas */
+function renderImageCanvas(page, qOverride) {
+  const bmp = getImageBitmap(page);
+  const s = readImgSettings();
+  const q = qOverride || effQualityOf(page);   // 单页覆盖优先（布局纸张/方向/适配仍走全局）
+  const plan = planForImage(page, q, s);
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, plan.targetW); cv.height = Math.max(1, plan.targetH);
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  /* 缩放基准要用「旋转后」的原始尺寸（ow/oh）：旋转 90° 后图片在画布上占的是 dh×dw，
+   * 拿未旋转的 bmp.width 当分母会算小，图片就贴不满目标画布。 */
+  const bRot90 = page.rot % 180 !== 0;
+  const bow = bRot90 ? bmp.height : bmp.width;
+  const boh = bRot90 ? bmp.width : bmp.height;
+  let sc;
+  if (plan.fit === 'cover') {
+    sc = Math.max(plan.targetW / bow, plan.targetH / boh);
+  } else {
+    sc = Math.min(plan.targetW / bow, plan.targetH / boh);
+  }
+  const dw = bmp.width * sc, dh = bmp.height * sc;
+  ctx.save();
+  ctx.translate(plan.targetW / 2, plan.targetH / 2);
+  if (page.rot) ctx.rotate(page.rot * Math.PI / 180);
+  if (page.hMirror) ctx.scale(-1, 1);
+  if (page.vMirror) ctx.scale(1, -1);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bmp, -dw / 2, -dh / 2, dw, dh);
+  ctx.restore();
+  enhanceCanvas(cv, effEnhanceOf(page));
+  return { cv, plan };
+}
+
+/* 估算页面内嵌位图的有效 DPI：扫描件整页一张大图时最准。
+ * 用途是给栅格化 DPI 封顶——低分辨率扫描件按更高 DPI 渲染只是插值放大，
+ * 体积暴涨却不增加细节。取不到（纯矢量页）或数值离谱时返回 null。 */
+async function pageSourceDpi(srcPage, vp1) {
+  try {
+    const OPS = window.pdfjsLib && window.pdfjsLib.OPS;
+    if (!OPS || !srcPage.getOperatorList) return null;
+    const ops = await srcPage.getOperatorList();
+    const paints = [OPS.paintImageXObject, OPS.paintJpegXObject];
+    let maxW = 0;
+    for (let i = 0; i < ops.fnArray.length; i++) {
+      if (paints.indexOf(ops.fnArray[i]) < 0) continue;
+      const args = ops.argsArray[i] || [];
+      const img = (srcPage.objs && srcPage.objs.get) ? srcPage.objs.get(args[0]) : null;
+      if (img && img.width && img.width > maxW) maxW = img.width;
+    }
+    if (!maxW) return null;
+    const dpi = maxW / (Math.max(vp1.width, vp1.height) / 72);
+    return (dpi >= 40 && dpi < 200) ? dpi : null;      // 40 以下多为小图标，不算整页图
+  } catch (e) { return null; }
+}
+
+/* PDF 页栅格化：pdf.js 高 DPI 渲染 → 白底 → 旋转/镜像 → 增强 → 返回 canvas + 页尺寸 */
+async function renderPdfCanvas(outDoc, page, pdf, srcPage, vp1, effDpi, enhance) {
+  const scale = effDpi / 72;
+  const viewport = srcPage.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.floor(viewport.width));
+  canvas.height = Math.max(1, Math.floor(viewport.height));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await srcPage.render({ canvasContext: ctx, viewport }).promise;
+  // 变换：先旋转再镜像（与缩略图/图片一致）
+  const rot = page.rot % 360;
+  const swap = rot % 180 !== 0;
+  const fw = swap ? canvas.height : canvas.width;
+  const fh = swap ? canvas.width : canvas.height;
+  let finalCanvas = canvas;
+  if (rot || page.hMirror || page.vMirror) {
+    finalCanvas = document.createElement('canvas');
+    finalCanvas.width = fw; finalCanvas.height = fh;
+    const fctx = finalCanvas.getContext('2d');
+    fctx.fillStyle = '#fff'; fctx.fillRect(0, 0, fw, fh);
+    fctx.save();
+    fctx.translate(fw / 2, fh / 2);
+    if (rot) fctx.rotate(rot * Math.PI / 180);
+    if (page.hMirror) fctx.scale(-1, 1);
+    if (page.vMirror) fctx.scale(1, -1);
+    fctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2, canvas.width, canvas.height);
+    fctx.restore();
+  }
+  enhanceCanvas(finalCanvas, enhance);
+  const pw = swap ? vp1.height : vp1.width;
+  const ph = swap ? vp1.width : vp1.height;
+  return { canvas: finalCanvas, pw, ph };
+}
+
+/* 进度遮罩辅助 */
+function showProgress(title) {
+  $('progTitle').textContent = title;
+  $('progText').textContent = '';
+  $('barFill').style.width = '0%';
+  $('progress').classList.add('show');
+}
+function setProgress(pct, text) {
+  $('barFill').style.width = Math.max(0, Math.min(100, pct)) + '%';
+  if (text) $('progText').textContent = text;
+}
+function hideProgress() {
+  $('progress').classList.remove('show');
+}
+
+/* 下载 Blob */
+function downloadBytes(bytes, filename) {
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+}
+
+/* 应用 /Rotate 到目标页（pdf-lib，仅矢量拷贝用） */
+function applyRotation(targetPage, rot) {
+  if (!rot) return;
+  targetPage.setRotation(PDFLib.degrees(rot));
+}
+
+/* ---- 主导出：统一调度 ---- */
+
+/* 「零编辑直通」：只有一个来源 PDF、页序未变、无任何编辑、矢量保真档、未开增强
+ * → 直接输出原始字节。pdf-lib 的 load+copyPages+save 会重写整个 PDF 结构
+ * （对象组织/xref/压缩方式都可能变），体积几乎必然膨胀；
+ * 想做到字节级不变，唯一可靠的办法就是不重新编码。 */
+function passthroughFile() {
+  if (overlayOn()) return null;                                 // 有全局水印/页码，必须重写
+  if (state.files.length !== 1) return null;
+  const f = state.files[0];
+  if (f.kind !== 'pdf' || !f.bytes || !f.pageCount) return null;
+  if (state.pages.length !== f.pageCount) return null;          // 有删页或混入别的文件
+  for (let i = 0; i < state.pages.length; i++) {
+    const p = state.pages[i];
+    if (p.fileId !== f.id || p.srcNo !== i + 1) return null;     // 顺序变了
+    if (p.rot || p.hMirror || p.vMirror || hasOverride(p)) return null;
+    if (hasOps(p)) return null;                                  // 有单页标注
+  }
+  if (!readQuality().vector) return null;                        // 必须是矢量保真档
+  if (state.imgSettings.enhance !== 'none') return null;
+  return f;
+}
+
+async function doExport() {
+  if (!state.pages.length) { toast('请先导入 PDF 或图片'); return; }
+  if (state.busy) return;
+  readImgSettings();
+  const q = readQuality();
+  const qTxt = q.label;
+
+  // 零编辑直通：原样输出，体积与源文件完全一致
+  const pt = passthroughFile();
+  if (pt) {
+    const bytes = new Uint8Array(pt.bytes.slice(0));
+    downloadBytes(bytes, makeOutputName(q.id));
+    toast('✅ 未做任何修改，已原样输出（' + fmtBytes(bytes.length) + '，与源文件一致）');
+    return;
+  }
+
+  const enhanceOn = state.imgSettings.enhance !== 'none';
+  showProgress('正在生成 PDF（' + qTxt + '）…');
+  state.busy = true;
+  updateFoot();
+  try {
+    const outDoc = await PDFLib.PDFDocument.create();
+    // 矢量拷贝的 pdf-lib 文档缓存（同文件多页复用）
+    const srcDocs = {};
+    const total = state.pages.length;
+    let done = 0;
+    for (const page of state.pages) {
+      setProgress((done / total) * 90, '处理第 ' + (done + 1) + ' / ' + total + ' 页：' + page.fileName);
+      if (page.kind === 'image') {
+        await exportImagePage(outDoc, page);
+      } else {
+        await exportPdfPage(outDoc, page, srcDocs);
+      }
+      done++;
+      if ((done & 1) === 0) { setProgress((done / total) * 90, ''); await new Promise(r => setTimeout(r, 0)); }
+    }
+    setProgress(95, '写入文件…');
+    const bytes = await outDoc.save();
+    setProgress(100, '完成');
+    await new Promise(r => setTimeout(r, 200));
+    downloadBytes(bytes, makeOutputName(q.id));
+    toast('✅ 已生成 ' + fmtBytes(bytes.length) + ' PDF');
+  } catch (e) {
+    console.error('导出失败', e);
+    toast('❌ 导出失败：' + (e && e.message ? e.message : e), 4000);
+  } finally {
+    state.busy = false;
+    updateFoot();
+    hideProgress();
+  }
+}
+
+/* 生成某页的栅格 JPEG —— 导出与体积预估【共用同一条路径】
+ * （以前预估用固定 bytesPerPixel 猜，实测误差 ×0.5~×3；现在直接真编码，口径必然一致） */
+async function pageRasterJpeg(page, q) {
+  if (page.kind === 'image') {
+    const { cv, plan } = imagePageCanvas(page, 0, q);
+    drawOps(cv.getContext('2d'), page, cv.width, cv.height, ovMeta(page));
+    const jpg = await canvasToJpegBytes(cv, q.q);
+    return { jpg, pageW: plan.pageW, pageH: plan.pageH, px: cv.width * cv.height };
+  }
+  const f = state.files.find(x => x.id === page.fileId);
+  if (!f || !f.bytes) throw new Error('找不到源文件数据：' + (f ? f.name : page.fileName));
+  const enhance = effEnhanceOf(page);
+  const mustRaster = pageNeedsRaster(page);
+  const needRaster = page.hMirror || page.vMirror || enhance !== 'none' || !q.vector || mustRaster;
+  const effDpi = (q.vector && needRaster) ? 300 : q.dpi;   // 保真档下例外页用 300 DPI 兜底
+  const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(f.bytes.slice(0)) }).promise;
+  try {
+    const srcPage = await pdf.getPage(page.srcNo);
+    const vp1 = srcPage.getViewport({ scale: 1 });
+    // 源图分辨率封顶：只缩不放。最差也保留目标 DPI 的 60%，避免误判导致明显发虚
+    let renderDpi = effDpi;
+    const srcDpi = await pageSourceDpi(srcPage, vp1);
+    if (srcDpi && srcDpi < effDpi) renderDpi = Math.max(Math.round(effDpi * 0.6), Math.round(srcDpi));
+    const { canvas, pw, ph } = await renderPdfCanvas(null, page, pdf, srcPage, vp1, renderDpi, enhance);
+    drawOps(canvas.getContext('2d'), page, canvas.width, canvas.height, ovMeta(page));
+    const jpg = await canvasToJpegBytes(canvas, q.q);
+    return { jpg, pageW: pw, pageH: ph, px: canvas.width * canvas.height };
+  } finally {
+    pdf.destroy();
+  }
+}
+/* 把一页 JPEG 落进输出文档 */
+async function embedRasterPage(outDoc, page, q) {
+  const { jpg, pageW, pageH } = await pageRasterJpeg(page, q);
+  const img = await outDoc.embedJpg(jpg);
+  const np = outDoc.addPage([pageW, pageH]);
+  np.drawImage(img, { x: 0, y: 0, width: pageW, height: pageH });
+}
+
+/* 图片页导出（栅格干道）：统一走「页面版面」画布，再叠加水印/页码/标注 */
+async function exportImagePage(outDoc, page) {
+  await embedRasterPage(outDoc, page, effQualityOf(page));
+}
+
+/* PDF 页导出：矢量特例 或 栅格干道（档位与增强均按该页生效值判断） */
+async function exportPdfPage(outDoc, page, srcDocs) {
+  const f = state.files.find(x => x.id === page.fileId);
+  if (!f || !f.bytes) throw new Error('找不到源文件数据：' + (f ? f.name : page.fileName));
+  const q = effQualityOf(page);
+  const enhance = effEnhanceOf(page);
+  const enhanceOn = enhance !== 'none';
+  // 有水印/页码/该页标注时必须栅格化：这些图层只能画在位图上，矢量页无法叠加
+  const mustRaster = pageNeedsRaster(page);
+  const canVector = q.vector && !page.hMirror && !page.vMirror && !enhanceOn && !mustRaster;
+  if (canVector) {
+    // 矢量特例：copyPages + /Rotate，保留文字可选中
+    if (!srcDocs[f.id]) srcDocs[f.id] = await PDFLib.PDFDocument.load(f.bytes, { ignoreEncryption: true });
+    const src = srcDocs[f.id];
+    const [tp] = await outDoc.copyPages(src, [page.srcNo - 1]);
+    applyRotation(tp, page.rot);
+    outDoc.addPage(tp);
+    return;
+  }
+  // 栅格干道：镜像/增强/栅格档/带叠加层 的 PDF 页（与 pageRasterJpeg 同一条路径）
+  await embedRasterPage(outDoc, page, q);
+}
+
+/* dataURL → Uint8Array（保留，供兼容使用；新代码用 canvasToJpegBytes） */
+function dataUrlToBytes(dataUrl) {
+  const b64 = dataUrl.split(',')[1];
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/* 输出文件名：创立PDF编辑器_yyyyMMdd-HHmm.pdf（若单文件，用源文件名） */
+function makeOutputName(mode) {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const stamp = '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes());
+  const suffix = mode === 'q-faithful' ? '' : '_' + mode;
+  let base = '创立PDF编辑器';
+  if (state.files.length === 1) base = state.files[0].name || '创立PDF编辑器';
+  return base + suffix + '_' + stamp + '.pdf';
+}
+
+/* ---- 常用色快捷色板 ----
+   页面里每个 input[type=color] 下方自动注入一行可点选的经典色。
+   点选只做「写回 value + 派发 input/change」，下游逻辑完全不用改。 */
+const SWATCH_COLORS = [
+  ['#1a1a1a', '黑'], ['#ffffff', '白'], ['#b9c0c9', '浅灰'], ['#555555', '深灰'],
+  ['#e03131', '红'], ['#f59f00', '橙'], ['#ffd400', '黄'], ['#2f9e44', '绿'],
+  ['#0ca678', '青'], ['#1c7ed6', '蓝'], ['#7048e8', '紫'], ['#e64980', '粉']
+];
+function swatchRowOf(input) {
+  return input && input.id ? document.querySelector('.swatches[data-for="' + input.id + '"]') : null;
+}
+function markSwatchOn(input) {
+  const row = swatchRowOf(input);
+  if (!row) return;
+  const v = String(input.value || '').toLowerCase();
+  row.querySelectorAll('.swc').forEach(b => b.classList.toggle('on', b.dataset.color.toLowerCase() === v));
+}
+function buildSwatches() {
+  document.querySelectorAll('input[type=color]').forEach(input => {
+    // 横排容器（工具条）里紧跟在选色器右侧；竖排的设置卡里则整行放到 label 之后
+    const lab = input.closest('label');
+    const anchor = lab || input;
+    let row = swatchRowOf(input);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'swatches';
+      row.dataset.for = input.id;
+      anchor.insertAdjacentElement('afterend', row);
+    }
+    row.textContent = '';
+    SWATCH_COLORS.forEach(([c, name]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swc';
+      b.style.background = c;
+      b.dataset.color = c;
+      b.title = name + ' ' + c;
+      b.setAttribute('aria-label', name + ' ' + c);
+      row.appendChild(b);
+    });
+    // 两个事件都派发：水印/页码监听 change，标注工具条监听 input
+    row.addEventListener('click', e => {
+      const b = e.target.closest('.swc');
+      if (!b) return;
+      input.value = b.dataset.color;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      markSwatchOn(input);
+    });
+    input.addEventListener('input', () => markSwatchOn(input));
+    markSwatchOn(input);
+  });
+}
+
+/* ---- 启动 ---- */
+applySaved();
+bindUI();
+buildSwatches();
+renderList();
+updateFoot();
+</script>
+</body>
+</html>
